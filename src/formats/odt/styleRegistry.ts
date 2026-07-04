@@ -75,16 +75,19 @@ export function paragraphAlignStyleDefs(): string {
 }
 
 const HEADING_FONT_SIZES: Record<number, number> = { 1: 24, 2: 20, 3: 18, 4: 16, 5: 14, 6: 13 }
+const ALIGNS = ['left', 'center', 'right', 'justify'] as const
 
-export function headingStyleName(level: number): string {
-  return `Heading${level}`
+export function headingStyleName(level: number, align: string): string {
+  return `Heading${level}-${align}`
 }
 
 export function headingStyleDefs(): string {
   return Object.entries(HEADING_FONT_SIZES)
-    .map(
-      ([level, size]) =>
-        `<style:style style:name="${headingStyleName(Number(level))}" style:family="paragraph" style:parent-style-name="Standard"><style:text-properties fo:font-weight="bold" fo:font-size="${size}pt"/></style:style>`,
+    .flatMap(([level, size]) =>
+      ALIGNS.map(
+        (align) =>
+          `<style:style style:name="${headingStyleName(Number(level), align)}" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:text-align="${align}"/><style:text-properties fo:font-weight="bold" fo:font-size="${size}pt"/></style:style>`,
+      ),
     )
     .join('')
 }

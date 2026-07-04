@@ -1,16 +1,11 @@
 import type { AnyFormatModule, PlannedFormat } from './types'
+import { odtModule } from './odt/odt'
 
 /** Implemented formats, registered here as each phase lands. */
-export const formatModules: AnyFormatModule[] = []
+export const formatModules: AnyFormatModule[] = [odtModule]
 
 /** Full format roadmap, used by the picker to show what's coming next. */
 export const plannedFormats: PlannedFormat[] = [
-  {
-    id: 'odt',
-    label: 'OpenDocument Text (.odt)',
-    description: 'Seitenbasierter Texteditor mit Tabellen, Bildern, Kopf-/Fußzeile, Inhaltsverzeichnis.',
-    extensions: ['.odt'],
-  },
   {
     id: 'docx',
     label: 'Word-Dokument (.docx)',
