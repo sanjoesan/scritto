@@ -18,3 +18,54 @@ body,
 body {
   margin: 0;
 }
+
+/* ProseMirror injects this class on the contenteditable surface it creates. */
+.ProseMirror {
+  outline: none;
+  min-height: 100%;
+  color: #111827;
+}
+
+.ProseMirror p,
+.ProseMirror h1,
+.ProseMirror h2,
+.ProseMirror h3,
+.ProseMirror h4,
+.ProseMirror h5,
+.ProseMirror h6 {
+  margin: 0 0 0.6em;
+}
+
+.ProseMirror img {
+  max-width: 100%;
+  height: auto;
+}
+
+.ProseMirror table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.6em 0;
+}
+
+.ProseMirror td,
+.ProseMirror th {
+  border: 1px solid #9ca3af;
+  padding: 4px 8px;
+  min-width: 2em;
+  vertical-align: top;
+}
+
+.ProseMirror th {
+  background: #f3f4f6;
+  font-weight: 600;
+}
+
+.ProseMirror ul,
+.ProseMirror ol {
+  padding-left: 1.4em;
+  margin: 0 0 0.6em;
+}
+
+.page-break-spacer {
+  width: 100%;
+}
