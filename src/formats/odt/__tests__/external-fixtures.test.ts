@@ -40,18 +40,25 @@ describe('ODT reader vs. real-world fixtures (apache/tdf test corpora)', () => {
       continue
     }
 
-    it(`imports "${name}" without crashing`, async () => {
-      try {
-        const blob = new Blob([new Uint8Array(buffer)])
-        const doc = await readOdt(blob)
-        const paragraphCount = (doc.body as { content?: unknown[] }).content?.length ?? 0
-        results.push({ name, ok: true, paragraphCount })
-        expect(doc.body).toBeTruthy()
-      } catch (err) {
-        results.push({ name, ok: false, error: err instanceof Error ? err.message : String(err) })
-        throw err
-      }
-    }, 10_000)
+    // 30s per-test timeout (not the default 10s): a few fixtures (e.g. excelfileformat.odt,
+    // with its embedded OLE spreadsheet) take ~5s locally under jsdom and have tipped over
+    // a 10s budget on slower CI runners, even though they import correctly.
+    it(
+      `imports "${name}" without crashing`,
+      async () => {
+        try {
+          const blob = new Blob([new Uint8Array(buffer)])
+          const doc = await readOdt(blob)
+          const paragraphCount = (doc.body as { content?: unknown[] }).content?.length ?? 0
+          results.push({ name, ok: true, paragraphCount })
+          expect(doc.body).toBeTruthy()
+        } catch (err) {
+          results.push({ name, ok: false, error: err instanceof Error ? err.message : String(err) })
+          throw err
+        }
+      },
+      30_000,
+    )
   }
 
   afterAll(() => {

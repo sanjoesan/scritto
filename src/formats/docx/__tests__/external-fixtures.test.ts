@@ -89,18 +89,25 @@ describe('DOCX reader vs. real-world fixtures (apache/poi test-data)', () => {
       continue
     }
 
-    it(`imports "${name}" without crashing`, async () => {
-      try {
-        const blob = new Blob([new Uint8Array(buffer)])
-        const doc = await readDocx(blob)
-        const paragraphCount = (doc.body as { content?: unknown[] }).content?.length ?? 0
-        results.push({ name, ok: true, paragraphCount })
-        expect(doc.body).toBeTruthy()
-      } catch (err) {
-        results.push({ name, ok: false, error: err instanceof Error ? err.message : String(err) })
-        throw err
-      }
-    }, 10_000)
+    // 30s per-test timeout (not the default 10s): matches the analogous ODT fixture suite
+    // — a couple of fixtures import correctly but sit close to a 10s budget under jsdom on
+    // slower CI runners.
+    it(
+      `imports "${name}" without crashing`,
+      async () => {
+        try {
+          const blob = new Blob([new Uint8Array(buffer)])
+          const doc = await readDocx(blob)
+          const paragraphCount = (doc.body as { content?: unknown[] }).content?.length ?? 0
+          results.push({ name, ok: true, paragraphCount })
+          expect(doc.body).toBeTruthy()
+        } catch (err) {
+          results.push({ name, ok: false, error: err instanceof Error ? err.message : String(err) })
+          throw err
+        }
+      },
+      30_000,
+    )
   }
 
   afterAll(() => {
