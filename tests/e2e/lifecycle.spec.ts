@@ -11,7 +11,7 @@ test.describe('Datenschutz & Lifecycle', () => {
     await page.goto('/')
     await page.getByRole('button', { name: /verstanden/i }).click()
     await expect(page.getByText(/wichtiger hinweis zum datenschutz/i)).not.toBeVisible()
-    await expect(page.getByRole('heading', { name: /papercut/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /scritto/i })).toBeVisible()
     await expect(page.getByText(/bald verfügbar/i).first()).toBeVisible()
   })
 

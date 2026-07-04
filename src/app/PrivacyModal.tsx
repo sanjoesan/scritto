@@ -16,7 +16,7 @@ export function PrivacyModal() {
           Wichtiger Hinweis zum Datenschutz
         </h2>
         <p className="mt-3 text-sm text-neutral-600 dark:text-neutral-300">
-          Papercut läuft vollständig in deinem Browser. Hochgeladene Dateien und Änderungen werden
+          Scritto läuft vollständig in deinem Browser. Hochgeladene Dateien und Änderungen werden
           <strong> nirgendwo gespeichert</strong> und niemals an einen Server übertragen. Sie
           existieren nur im Arbeitsspeicher dieses Tabs.
         </p>

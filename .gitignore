@@ -20,6 +20,9 @@ blob-report
 tsconfig.app.tsbuildinfo
 tsconfig.node.tsbuildinfo
 
+# Claude Code harness-local state
+.claude/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -1,13 +1,13 @@
-# Papercut
+# Scritto
 
-Papercut ist eine Web-App zum Ansehen und Bearbeiten gängiger Dokumentformate — komplett im
+Scritto ist eine Web-App zum Ansehen und Bearbeiten gängiger Dokumentformate — komplett im
 Browser, ohne Server, ohne Konto.
 
-**Live:** https://sanjoesan.github.io/papercut/
+**Live:** https://sanjoesan.github.io/scritto/
 
 ## Datenschutz — bitte lesen
 
-Papercut lädt Dateien ausschließlich in den Arbeitsspeicher deines Browser-Tabs. Es gibt keinen
+Scritto lädt Dateien ausschließlich in den Arbeitsspeicher deines Browser-Tabs. Es gibt keinen
 Server, keine Übertragung von Dateiinhalten irgendwohin, kein `localStorage`, kein
 `IndexedDB`, keine Cookies mit Dokumentdaten.
 

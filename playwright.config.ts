@@ -7,12 +7,12 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: [['html', { open: 'never' }]],
   use: {
-    baseURL: 'http://localhost:4173/papercut/',
+    baseURL: 'http://localhost:4173/scritto/',
     trace: 'on-first-retry',
   },
   webServer: {
     command: 'npm run build && npm run preview -- --port 4173',
-    url: 'http://localhost:4173/papercut/',
+    url: 'http://localhost:4173/scritto/',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },

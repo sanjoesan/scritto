@@ -11,7 +11,7 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: /verstanden/i }))
 
     expect(screen.getByRole('status')).toHaveTextContent(/nichts wird gespeichert/i)
-    expect(screen.getByRole('heading', { name: /papercut/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /scritto/i })).toBeInTheDocument()
   })
 
   it('never touches localStorage or sessionStorage', async () => {
