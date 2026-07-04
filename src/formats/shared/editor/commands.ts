@@ -105,3 +105,47 @@ export function clearMarkColor(markName: ColorMarkName): Command {
   }
 }
 
+/** True when a non-empty selection exists (Text/Image/Cell/All) — the single
+ * condition for enabling the "Ausschneiden" toolbar button/keybinding. */
+export function canCut(state: EditorState): boolean {
+  return !state.selection.empty
+}
+
+export interface CutHandlers {
+  /** Called when the native cut attempt fails, so callers can show visible
+   * feedback instead of silently losing the selection. */
+  onCutBlocked?: (message: string) => void
+}
+
+/**
+ * Cut command for access paths that don't already produce a native `cut` DOM
+ * event (toolbar button click, `Shift-Delete`). Native Ctrl+X/Cmd+X and the
+ * browser context menu do NOT go through this function — those already work
+ * correctly via prosemirror-view's built-in `cut` event handler.
+ *
+ * Deliberately triggers `document.execCommand('cut')` instead of chaining our
+ * own clipboard-write + delete: this reproduces the exact same, already
+ * correct path used by native Ctrl+X (including image/cell/all selections)
+ * and avoids the async Clipboard API on purpose, so there is never a
+ * half-completed state where the clipboard was written but the deletion
+ * failed (or vice versa).
+ */
+export function cutSelection(handlers: CutHandlers = {}): Command {
+  return (state, dispatch, view) => {
+    if (state.selection.empty) return false
+    if (!dispatch || !view) return true // availability check only (e.g. for `disabled`)
+
+    view.focus()
+    let succeeded = false
+    try {
+      succeeded = view.dom.ownerDocument.execCommand('cut')
+    } catch {
+      succeeded = false
+    }
+    if (!succeeded) {
+      handlers.onCutBlocked?.('Ausschneiden wurde vom Browser blockiert. Es wurde nichts verändert.')
+    }
+    return succeeded
+  }
+}
+

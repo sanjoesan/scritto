@@ -1,10 +1,13 @@
 import type { ChangeEvent } from 'react'
 import type { EditorView } from 'prosemirror-view'
+import type { Command } from 'prosemirror-state'
 import { toggleMark } from 'prosemirror-commands'
 import { wordSchema } from '../schema'
 import {
   applyMarkColor,
+  canCut,
   clearMarkColor,
+  cutSelection,
   insertImage,
   insertTable,
   isAlignActive,
@@ -18,11 +21,35 @@ import {
 
 interface ToolbarProps {
   view: EditorView
+  cutError: string | null
+  setCutError: (message: string | null) => void
 }
 
-function run(view: EditorView, command: (state: typeof view.state, dispatch: typeof view.dispatch) => boolean) {
-  command(view.state, view.dispatch)
+function run(view: EditorView, command: Command) {
+  command(view.state, view.dispatch, view)
   view.focus()
+}
+
+function ScissorsIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <circle cx="6" cy="6" r="2.4" />
+      <circle cx="6" cy="18" r="2.4" />
+      <line x1="8.2" y1="7.6" x2="20" y2="20" />
+      <line x1="8.2" y1="16.4" x2="20" y2="4" />
+    </svg>
+  )
 }
 
 function MarkButton({
@@ -83,7 +110,7 @@ function AlignButton({ view, align, label }: { view: EditorView; align: Align; l
   )
 }
 
-export function Toolbar({ view }: ToolbarProps) {
+export function Toolbar({ view, cutError, setCutError }: ToolbarProps) {
   function currentHeadingLevel(): string {
     const { $from } = view.state.selection
     for (let depth = $from.depth; depth >= 0; depth--) {
@@ -113,6 +140,28 @@ export function Toolbar({ view }: ToolbarProps) {
       aria-label="Textformatierung"
       className="flex flex-wrap items-center gap-1 border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 px-2 py-1.5"
     >
+      <button
+        type="button"
+        title="Ausschneiden"
+        aria-label="Ausschneiden"
+        disabled={!canCut(view.state)}
+        onMouseDown={(e) => {
+          e.preventDefault()
+          setCutError(null)
+          run(view, cutSelection({ onCutBlocked: setCutError }))
+        }}
+        className="px-2 py-1 rounded text-sm border border-transparent hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+      >
+        <ScissorsIcon />
+      </button>
+      {cutError && (
+        <span role="alert" className="text-xs text-red-600 dark:text-red-400 max-w-[16rem] truncate">
+          {cutError}
+        </span>
+      )}
+
+      <div className="w-px h-5 bg-neutral-300 dark:bg-neutral-700 mx-1" />
+
       <select
         aria-label="Absatzformat"
         value={currentHeadingLevel()}

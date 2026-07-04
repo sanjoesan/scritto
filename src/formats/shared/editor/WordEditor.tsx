@@ -9,6 +9,7 @@ import { tableEditing, columnResizing } from 'prosemirror-tables'
 import { dropCursor } from 'prosemirror-dropcursor'
 import { gapCursor } from 'prosemirror-gapcursor'
 import { wordSchema } from '../schema'
+import { cutSelection } from './commands'
 import { createPaginationPlugin } from './pagination'
 import { pageBackgroundStyle, PAGE_WIDTH_PX, PAGE_MARGIN_PX } from './pageLayout'
 import { Toolbar } from './Toolbar'
@@ -53,6 +54,15 @@ export function WordEditor({ document: doc, onChange }: FormatEditorProps<WordDo
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
   const [, forceRender] = useState(0)
+  const [cutError, setCutError] = useState<string | null>(null)
+
+  // Auto-dismiss the "Ausschneiden" error feedback — visible but not a
+  // blocking, permanent state.
+  useEffect(() => {
+    if (!cutError) return
+    const id = window.setTimeout(() => setCutError(null), 4000)
+    return () => window.clearTimeout(id)
+  }, [cutError])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -71,6 +81,12 @@ export function WordEditor({ document: doc, onChange }: FormatEditorProps<WordDo
           'Mod-b': toggleMark(wordSchema.marks.strong),
           'Mod-i': toggleMark(wordSchema.marks.em),
           'Mod-u': toggleMark(wordSchema.marks.underline),
+          // Windows' common secondary "cut" keybinding. Not something browsers
+          // map to a native cut on a contenteditable by themselves (unlike
+          // Ctrl+X/Cmd+X, which prosemirror-view already handles natively), so
+          // it's bound explicitly to the same execCommand('cut') path as the
+          // toolbar button (see commands.ts, specs/ausschneiden-code.md §3.3).
+          'Shift-Delete': cutSelection({ onCutBlocked: setCutError }),
         }),
         keymap(baseKeymap),
         columnResizing(),
@@ -81,6 +97,11 @@ export function WordEditor({ document: doc, onChange }: FormatEditorProps<WordDo
       ],
     })
 
+    // Rechtsklick "Ausschneiden": bewusst kein eigenes Kontextmenü und kein
+    // `contextmenu`-Listener mit `preventDefault()` — das native
+    // Browser-Kontextmenü bleibt erreichbar und sein "Ausschneiden"-Eintrag
+    // nutzt denselben `editHandlers.cut`-Pfad wie Strg+X (siehe
+    // specs/ausschneiden-code.md §1.4/§4, specs/ausschneiden-req.md Abschnitt 1).
     const view = new EditorView(containerRef.current, {
       state,
       dispatchTransaction(tr) {
@@ -128,7 +149,7 @@ export function WordEditor({ document: doc, onChange }: FormatEditorProps<WordDo
 
   return (
     <div className="flex flex-col h-full">
-      {viewRef.current && <Toolbar view={viewRef.current} />}
+      {viewRef.current && <Toolbar view={viewRef.current} cutError={cutError} setCutError={setCutError} />}
       <div className="flex-1 overflow-auto bg-neutral-200 dark:bg-neutral-950 flex justify-center py-8">
         <div
           style={{
