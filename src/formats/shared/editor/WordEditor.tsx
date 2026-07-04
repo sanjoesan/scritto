@@ -26,24 +26,19 @@ import type { WordDocumentContent } from '../documentModel'
  * don't know how to split an `AllSelection`, and plain typing instead wipes
  * out and replaces the entire stale selection.
  *
- * A `document`-level `selectionchange` listener would be the obvious fix,
- * but it does not reliably fire for a click that merely collapses an
- * existing selection back onto itself. A `mouseup` handler on the editor's
- * own DOM is guaranteed to fire for every click, so it's used instead;
- * `posAtCoords` maps the click's screen position straight to a doc
- * position. This runs synchronously (no rAF/setTimeout deferral) so it is
- * guaranteed to land before any subsequent keydown the user fires next —
- * deferring it left a real race where a fast Enter/keystroke right after
- * the click could still observe the stale selection. This only steps in
- * for the narrow, unambiguous case — DOM shows a plain collapsed caret but
- * the model still holds a non-empty selection — so it never fights
- * ProseMirror's own handling of an actual drag-to-select.
+ * Clicking *inside* an existing, non-collapsed selection does not reliably
+ * collapse the browser's native selection by the time `mouseup` fires —
+ * Chrome deliberately keeps it live (to support drag-to-move of the
+ * selected text) unless the pointer actually moves before release. So
+ * `document.getSelection().isCollapsed` cannot be used to detect "this was
+ * a plain click": it is measured, not assumed. Instead, mousedown/mouseup
+ * coordinates are compared — no meaningful movement between them means a
+ * plain click, and the model selection is force-collapsed to that point via
+ * `posAtCoords` regardless of what the native selection currently reports.
+ * A real drag (mouseup far from mousedown) is left untouched so this never
+ * fights ProseMirror's own handling of an actual drag-to-select.
  */
 function reconcileSelectionOnClick(view: EditorView, event: MouseEvent) {
-  if (view.state.selection.empty) return
-  const domSelection = document.getSelection()
-  if (!domSelection || !domSelection.isCollapsed) return
-
   const coords = view.posAtCoords({ left: event.clientX, top: event.clientY })
   if (!coords) return
   const newSelection = TextSelection.near(view.state.doc.resolve(coords.pos))
@@ -101,10 +96,27 @@ export function WordEditor({ document: doc, onChange }: FormatEditorProps<WordDo
     view.focus()
     forceRender((n) => n + 1)
 
-    const onMouseUp = (event: MouseEvent) => reconcileSelectionOnClick(view, event)
+    // A real drag needs a couple of pixels of intentional movement — a plain
+    // click's mousedown/mouseup coordinates can differ by a pixel or two even
+    // without any dragging (pointer jitter, sub-pixel rounding).
+    const CLICK_DRAG_THRESHOLD_PX = 3
+    let mouseDownPos: { x: number; y: number } | null = null
+    const onMouseDown = (event: MouseEvent) => {
+      mouseDownPos = { x: event.clientX, y: event.clientY }
+    }
+    const onMouseUp = (event: MouseEvent) => {
+      const down = mouseDownPos
+      mouseDownPos = null
+      if (!down) return
+      const movedPx = Math.hypot(event.clientX - down.x, event.clientY - down.y)
+      if (movedPx > CLICK_DRAG_THRESHOLD_PX) return
+      reconcileSelectionOnClick(view, event)
+    }
+    view.dom.addEventListener('mousedown', onMouseDown)
     view.dom.addEventListener('mouseup', onMouseUp)
 
     return () => {
+      view.dom.removeEventListener('mousedown', onMouseDown)
       view.dom.removeEventListener('mouseup', onMouseUp)
       view.destroy()
       viewRef.current = null

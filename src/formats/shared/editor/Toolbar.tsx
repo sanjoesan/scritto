@@ -228,6 +228,7 @@ export function Toolbar({ view }: ToolbarProps) {
       <button
         type="button"
         title="Tabelle einfügen"
+        aria-label="Tabelle einfügen"
         aria-pressed={isInTable(view.state)}
         onMouseDown={(e) => {
           e.preventDefault()
