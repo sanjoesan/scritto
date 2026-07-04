@@ -14,6 +14,7 @@ import {
 } from './styleRegistry'
 import { ImageCollector, type CollectedImage } from './imageCollector'
 import { PAGE_WIDTH_MM, PAGE_HEIGHT_MM, PAGE_MARGIN_MM } from '../shared/pageGeometry'
+import { stampZipEntriesForDeterminism } from '../shared/zipDeterminism'
 
 /** ODF measures page geometry in cm; renders e.g. 25 -> "2.5cm", 210 -> "21cm". */
 function mmToCm(mm: number): string {
@@ -41,6 +42,23 @@ function runPropsFromMarks(marks: JsonNode['marks']): RunProps {
   return props
 }
 
+/**
+ * Generates deterministic, sequential `table:name` values ("Table1", "Table2", ...).
+ * The previous implementation used `Math.random()`, which made two exports of the very
+ * same, unchanged document byte-different whenever it contained a table — violating the
+ * "two consecutive exports are byte/content-identical" requirement
+ * (speichern-exportieren-qa.md Testfall 11). `table:name` merely has to be unique within
+ * the package; `readOdt` never reads it back, so a plain incrementing sequence (shared
+ * across body/header/footer so names stay unique document-wide) is sufficient.
+ */
+class TableNameSequence {
+  private count = 0
+  next(): string {
+    this.count += 1
+    return `Table${this.count}`
+  }
+}
+
 function encodeWhitespace(text: string): string {
   return escapeXml(text).replace(/\t/g, '<text:tab/>').replace(/ {2,}/g, (run) => {
     // ODF only preserves a single leading/following space; runs of extra spaces
@@ -64,7 +82,7 @@ function inlineToOdt(nodes: JsonNode[] | undefined, styles: TextStyleRegistry): 
     .join('')
 }
 
-function blockToOdt(node: JsonNode, styles: TextStyleRegistry, images: ImageCollector): string {
+function blockToOdt(node: JsonNode, styles: TextStyleRegistry, images: ImageCollector, tableNames: TableNameSequence): string {
   switch (node.type) {
     case 'paragraph': {
       const align = (node.attrs?.align as string) ?? 'left'
@@ -83,7 +101,7 @@ function blockToOdt(node: JsonNode, styles: TextStyleRegistry, images: ImageColl
       const listStyleName = node.type === 'ordered_list' ? ORDERED_LIST_STYLE_NAME : BULLET_LIST_STYLE_NAME
       const items = (node.content ?? [])
         .map((item) => {
-          const inner = (item.content ?? []).map((child) => blockToOdt(child, styles, images)).join('')
+          const inner = (item.content ?? []).map((child) => blockToOdt(child, styles, images, tableNames)).join('')
           return `<text:list-item>${inner}</text:list-item>`
         })
         .join('')
@@ -91,28 +109,68 @@ function blockToOdt(node: JsonNode, styles: TextStyleRegistry, images: ImageColl
     }
     case 'table': {
       const rows = node.content ?? []
-      const colCount = rows[0]?.content?.length ?? 1
+      // Column count must be the *sum* of the first row's colspans, not merely the
+      // number of cell nodes — a colspan>1 cell in the first row would otherwise
+      // under-declare `table:table-column`s (see speichern-exportieren-code.md 1.4).
+      const colCount =
+        (rows[0]?.content ?? []).reduce((sum, cell) => sum + Number(cell.attrs?.colspan ?? 1), 0) || 1
       const columns = Array.from({ length: colCount }, () => '<table:table-column/>').join('')
+
+      // ODF 1.3 §9.1.1 requires every row to declare exactly `colCount` cell
+      // elements — unlike OOXML's `w:gridSpan`, a `table:number-columns-spanned`
+      // does *not* reduce how many table-cell/covered-table-cell elements the row
+      // needs. `pending` tracks, per grid column, how many more rows must emit a
+      // `<table:covered-table-cell/>` there because an earlier row's cell has a
+      // rowspan reaching into them (mirrors the equivalent `pending` tracker in
+      // docx/writer.ts::tableToDocx, adapted for ODF's per-row-full-grid rule).
+      const pending: number[] = Array.from({ length: colCount }, () => 0)
+
       const rowsXml = rows
         .map((row) => {
-          const cells = (row.content ?? [])
-            .map((cell) => {
-              const colspan = Number(cell.attrs?.colspan ?? 1)
-              const rowspan = Number(cell.attrs?.rowspan ?? 1)
-              const spanAttrs = [
-                colspan > 1 ? `table:number-columns-spanned="${colspan}"` : '',
-                rowspan > 1 ? `table:number-rows-spanned="${rowspan}"` : '',
-              ]
-                .filter(Boolean)
-                .join(' ')
-              const inner = (cell.content ?? []).map((child) => blockToOdt(child, styles, images)).join('')
-              return `<table:table-cell ${spanAttrs}>${inner || '<text:p/>'}</table:table-cell>`
-            })
-            .join('')
-          return `<table:table-row>${cells}</table:table-row>`
+          const cellsXml: string[] = []
+          let col = 0
+          let cellIndex = 0
+          const rowCells = row.content ?? []
+          while (col < colCount) {
+            if (pending[col] > 0) {
+              pending[col] -= 1
+              cellsXml.push('<table:covered-table-cell/>')
+              col += 1
+              continue
+            }
+            const cell = rowCells[cellIndex]
+            cellIndex += 1
+            if (!cell) {
+              col += 1
+              continue
+            }
+            const colspan = Number(cell.attrs?.colspan ?? 1)
+            const rowspan = Number(cell.attrs?.rowspan ?? 1)
+            const spanAttrs = [
+              colspan > 1 ? `table:number-columns-spanned="${colspan}"` : '',
+              rowspan > 1 ? `table:number-rows-spanned="${rowspan}"` : '',
+            ]
+              .filter(Boolean)
+              .join(' ')
+            const inner = (cell.content ?? []).map((child) => blockToOdt(child, styles, images, tableNames)).join('')
+            cellsXml.push(`<table:table-cell ${spanAttrs}>${inner || '<text:p/>'}</table:table-cell>`)
+            // Horizontal coverage: the (colspan - 1) grid columns to the right of this
+            // cell, within this same row, get a covered-table-cell instead of another
+            // real cell.
+            for (let c = col + 1; c < col + colspan; c++) {
+              cellsXml.push('<table:covered-table-cell/>')
+            }
+            // Vertical coverage: mark the columns this cell spans so the next
+            // (rowspan - 1) rows emit covered-table-cell at the same grid positions.
+            if (rowspan > 1) {
+              for (let c = col; c < col + colspan; c++) pending[c] = rowspan - 1
+            }
+            col += colspan
+          }
+          return `<table:table-row>${cellsXml.join('')}</table:table-row>`
         })
         .join('')
-      const tableName = `Table${Math.round(Math.random() * 1_000_000)}`
+      const tableName = tableNames.next()
       return `<table:table table:name="${tableName}">${columns}${rowsXml}</table:table>`
     }
     case 'image': {
@@ -130,14 +188,19 @@ function blockToOdt(node: JsonNode, styles: TextStyleRegistry, images: ImageColl
       // placeholder itself back into, so its rescued content is unwrapped and written
       // as plain blocks — losing the "unsupported" marker, but not the text, which is
       // what the round-trip requirement (§6) actually checks for.
-      return (node.content ?? []).map((child) => blockToOdt(child, styles, images)).join('')
+      return (node.content ?? []).map((child) => blockToOdt(child, styles, images, tableNames)).join('')
     default:
       return ''
   }
 }
 
-function blocksToOdt(content: JsonNode[] | undefined, styles: TextStyleRegistry, images: ImageCollector): string {
-  return (content ?? []).map((node) => blockToOdt(node, styles, images)).join('')
+function blocksToOdt(
+  content: JsonNode[] | undefined,
+  styles: TextStyleRegistry,
+  images: ImageCollector,
+  tableNames: TableNameSequence,
+): string {
+  return (content ?? []).map((node) => blockToOdt(node, styles, images, tableNames)).join('')
 }
 
 function buildContentXml(bodyXml: string, styles: TextStyleRegistry): string {
@@ -197,13 +260,16 @@ function buildManifestXml(images: CollectedImage[]): string {
 export async function writeOdt(doc: WordDocumentContent): Promise<Blob> {
   const bodyStyles = new TextStyleRegistry()
   const images = new ImageCollector()
-  const bodyXml = blocksToOdt((doc.body as unknown as JsonNode).content, bodyStyles, images)
+  // Shared across body/header/footer so every table in the document gets a unique,
+  // deterministic name (see TableNameSequence above).
+  const tableNames = new TableNameSequence()
+  const bodyXml = blocksToOdt((doc.body as unknown as JsonNode).content, bodyStyles, images, tableNames)
 
   const chromeStyles = new TextStyleRegistry()
   const header = doc.header as unknown as JsonNode | null
   const footer = doc.footer as unknown as JsonNode | null
-  const headerXml = header ? blocksToOdt(header.content, chromeStyles, images) : null
-  const footerXml = footer ? blocksToOdt(footer.content, chromeStyles, images) : null
+  const headerXml = header ? blocksToOdt(header.content, chromeStyles, images, tableNames) : null
+  const footerXml = footer ? blocksToOdt(footer.content, chromeStyles, images, tableNames) : null
 
   const contentXml = buildContentXml(bodyXml, bodyStyles)
   const stylesXml = buildStylesXml(headerXml, footerXml, chromeStyles)
@@ -220,5 +286,20 @@ export async function writeOdt(doc: WordDocumentContent): Promise<Blob> {
     zip.file(image.fileName, image.base64, { base64: true })
   }
 
-  return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.oasis.opendocument.text' })
+  // Must run after every zip.file()/zip.folder() call above and right before
+  // generateAsync(), so the archive's bytes depend only on document content, not on the
+  // wall-clock moment the export happened to run (see speichern-exportieren-qa.md
+  // Testfall 11 / zipDeterminism.ts). Only touches each entry's `date`, not its
+  // per-file compression setting, so it does not affect the `mimetype` STORE override
+  // below.
+  stampZipEntriesForDeterminism(zip)
+
+  // `mimetype` above is explicitly written with `{ compression: 'STORE' }` per file,
+  // which — per the ODF spec — must stay uncompressed and remain the first zip entry;
+  // that per-file setting takes precedence over this global default and is untouched.
+  return zip.generateAsync({
+    type: 'blob',
+    mimeType: 'application/vnd.oasis.opendocument.text',
+    compression: 'DEFLATE',
+  })
 }

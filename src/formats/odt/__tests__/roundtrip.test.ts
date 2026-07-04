@@ -2,6 +2,13 @@ import JSZip from 'jszip'
 import { writeOdt } from '../writer'
 import { readOdt } from '../reader'
 import type { WordDocumentContent } from '../../shared/documentModel'
+import {
+  readZipEntryInfo,
+  readZipEntryCompressionMethods,
+  ZIP_COMPRESSION_STORED,
+  ZIP_COMPRESSION_DEFLATE,
+  withMockedDate,
+} from '../../shared/__tests__/zipInspect'
 
 const TINY_PNG =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
@@ -257,6 +264,78 @@ describe('ODT round trip: tables', () => {
     const cell = (result.body as any).content[0].content[0].content[0]
     expect(cell.attrs.colspan).toBe(2)
   })
+
+  // These two check the raw content.xml structure rather than the app's own
+  // read-back model. ODF 1.3 §9.1.1 requires every table-row to declare exactly as
+  // many table-cell/covered-table-cell elements as table-columns exist — unlike
+  // OOXML's w:gridSpan, a table:number-columns-spanned attribute alone does not
+  // satisfy that. Checking only via readOdt() would not catch a writer that
+  // under-declares cells, since the reader filters for real cells only (see
+  // speichern-exportieren-code.md 1.5).
+  it('emits ODF-compliant covered-table-cell placeholders for a horizontal (colspan) merge', async () => {
+    const original = doc([
+      {
+        type: 'table',
+        content: [
+          {
+            type: 'table_row',
+            content: [{ type: 'table_cell', attrs: { colspan: 2, rowspan: 1 }, content: [paragraph('Merged')] }],
+          },
+          {
+            type: 'table_row',
+            content: [
+              { type: 'table_cell', attrs: { colspan: 1, rowspan: 1 }, content: [paragraph('A2')] },
+              { type: 'table_cell', attrs: { colspan: 1, rowspan: 1 }, content: [paragraph('B2')] },
+            ],
+          },
+        ],
+      },
+    ])
+    const blob = await writeOdt(original)
+    const zip = await JSZip.loadAsync(blob)
+    const contentXml = await zip.file('content.xml')!.async('text')
+
+    expect((contentXml.match(/<table:table-column\/>/g) ?? []).length).toBe(2)
+
+    const rowMatches = contentXml.match(/<table:table-row>.*?<\/table:table-row>/gs) ?? []
+    expect(rowMatches).toHaveLength(2)
+    for (const row of rowMatches) {
+      const cellCount = (row.match(/<table:table-cell[ >]/g) ?? []).length
+      const coveredCount = (row.match(/<table:covered-table-cell\/>/g) ?? []).length
+      expect(cellCount + coveredCount).toBe(2)
+    }
+    expect(rowMatches[0]).toContain('<table:covered-table-cell/>')
+  })
+
+  it('emits ODF-compliant covered-table-cell placeholders for a vertical (rowspan) merge', async () => {
+    const original = doc([
+      {
+        type: 'table',
+        content: [
+          {
+            type: 'table_row',
+            content: [
+              { type: 'table_cell', attrs: { colspan: 1, rowspan: 2 }, content: [paragraph('Tall')] },
+              { type: 'table_cell', attrs: { colspan: 1, rowspan: 1 }, content: [paragraph('B1')] },
+            ],
+          },
+          {
+            type: 'table_row',
+            content: [{ type: 'table_cell', attrs: { colspan: 1, rowspan: 1 }, content: [paragraph('B2')] }],
+          },
+        ],
+      },
+    ])
+    const blob = await writeOdt(original)
+    const zip = await JSZip.loadAsync(blob)
+    const contentXml = await zip.file('content.xml')!.async('text')
+
+    const rowMatches = contentXml.match(/<table:table-row>.*?<\/table:table-row>/gs) ?? []
+    expect(rowMatches).toHaveLength(2)
+    // Row 2 must have a covered-table-cell at column 0 (covered by row 1's rowspan),
+    // then the real "B2" cell at column 1.
+    expect(rowMatches[1]).toMatch(/^<table:table-row><table:covered-table-cell\/><table:table-cell/)
+  })
 })
 
 describe('ODT round trip: images', () => {
@@ -395,5 +474,101 @@ describe('ODT round trip: whole-document fidelity', () => {
     expect((result.footer as any).content[0].content[0].text).toBe('Seite')
     const types = (result.body as any).content.map((n: any) => n.type)
     expect(types).toEqual(['heading', 'paragraph', 'bullet_list', 'table', 'image'])
+  })
+})
+
+describe('ODT writer: package compression (speichern-exportieren-code.md Bug 1.6)', () => {
+  it('compresses content.xml with DEFLATE while keeping the mimetype entry Stored', async () => {
+    const blob = await writeOdt(doc([paragraph('Text zum Komprimieren, wiederholt. '.repeat(200))]))
+    const buffer = Buffer.from(await blob.arrayBuffer())
+    const methods = readZipEntryCompressionMethods(buffer)
+
+    expect(methods.size).toBeGreaterThan(0)
+    expect(methods.get('content.xml')).toBe(ZIP_COMPRESSION_DEFLATE)
+    expect(methods.get('styles.xml')).toBe(ZIP_COMPRESSION_DEFLATE)
+    // ODF spec: the `mimetype` entry must remain uncompressed (Stored), independent of
+    // the writer's chosen default compression for the rest of the package.
+    expect(methods.get('mimetype')).toBe(ZIP_COMPRESSION_STORED)
+
+    // Effect-based proof for content.xml: a highly repetitive entry must actually
+    // shrink under DEFLATE.
+    const info = readZipEntryInfo(buffer)
+    const contentEntry = info.get('content.xml')!
+    expect(contentEntry.uncompressedSize).toBeGreaterThan(1000)
+    expect(contentEntry.compressedSize).toBeLessThan(contentEntry.uncompressedSize)
+  })
+
+  it('keeps the mimetype entry as the first entry in the zip (ODF requirement)', async () => {
+    const blob = await writeOdt(doc([paragraph('x')]))
+    const buffer = Buffer.from(await blob.arrayBuffer())
+    // The very first local file header in the byte stream must be for "mimetype".
+    expect(buffer.readUInt32LE(0)).toBe(0x04034b50)
+    const nameLen = buffer.readUInt16LE(26)
+    const firstName = buffer.toString('utf-8', 30, 30 + nameLen)
+    expect(firstName).toBe('mimetype')
+  })
+})
+
+describe('ODT writer: export determinism (speichern-exportieren-qa.md Testfall 11)', () => {
+  it('produces byte-identical output for the same document exported at two different wall-clock times', async () => {
+    // See the identical DOCX-side test in docx/__tests__/roundtrip.test.ts for the full
+    // rationale. Same root cause here: `writeOdt` calls `zip.file(...)` throughout
+    // without an explicit `date` option, so JSZip embeds the wall-clock call time.
+    // FIXED (speichern-exportieren-code.md fix round): writer.ts now calls
+    // stampZipEntriesForDeterminism(zip) right before generateAsync(), so this is a
+    // regression test, not a currently-known defect.
+    const content = doc([paragraph('Unveraendert')])
+    const blobA = await withMockedDate('2024-01-01T00:00:00Z', () => writeOdt(content))
+    const blobB = await withMockedDate('2024-01-01T00:00:03Z', () => writeOdt(content))
+    const bufA = Buffer.from(await blobA.arrayBuffer())
+    const bufB = Buffer.from(await blobB.arrayBuffer())
+
+    expect(Buffer.compare(bufA, bufB)).toBe(0)
+  })
+
+  it('produces byte-identical output for a document containing tables, exported twice at the same wall-clock time (table:name determinism)', async () => {
+    // Regression test for a second, independent determinism defect found while
+    // verifying the timestamp fix above: writer.ts previously generated `table:name`
+    // via `Math.random()`, which would make any document containing a table
+    // byte-different on every export regardless of the timestamp fix. Two tables are
+    // used so a fixed (non-random) naming scheme is also exercised for uniqueness
+    // across multiple tables in the same document, not just single-table determinism.
+    const twoTables = doc([
+      {
+        type: 'table',
+        content: [
+          {
+            type: 'table_row',
+            content: [{ type: 'table_cell', attrs: { colspan: 1, rowspan: 1 }, content: [paragraph('T1')] }],
+          },
+        ],
+      },
+      paragraph('Zwischentext'),
+      {
+        type: 'table',
+        content: [
+          {
+            type: 'table_row',
+            content: [{ type: 'table_cell', attrs: { colspan: 1, rowspan: 1 }, content: [paragraph('T2')] }],
+          },
+        ],
+      },
+    ])
+
+    const blobA = await writeOdt(twoTables)
+    const blobB = await writeOdt(twoTables)
+    const bufA = Buffer.from(await blobA.arrayBuffer())
+    const bufB = Buffer.from(await blobB.arrayBuffer())
+
+    expect(Buffer.compare(bufA, bufB)).toBe(0)
+
+    // Independent proof that names are still unique per table (not merely constant/
+    // colliding), by parsing content.xml directly rather than trusting the byte
+    // comparison alone.
+    const zip = await JSZip.loadAsync(bufA)
+    const contentXml = await zip.file('content.xml')!.async('text')
+    const tableNames = [...contentXml.matchAll(/<table:table table:name="([^"]+)">/g)].map((m) => m[1])
+    expect(tableNames).toHaveLength(2)
+    expect(new Set(tableNames).size).toBe(2)
   })
 })

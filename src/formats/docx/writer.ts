@@ -5,6 +5,7 @@ import { RelationshipRegistry, RELATIONSHIP_TYPES } from './relationships'
 import { ImageCollector, type CollectedImage } from './imageCollector'
 import { HEADING_STYLE_ID, headingStylesXml, BULLET_NUM_ID, ORDERED_NUM_ID, numberingXml } from './styleDefs'
 import { defaultPageSetupXml } from './pageSetup'
+import { stampZipEntriesForDeterminism } from '../shared/zipDeterminism'
 
 interface JsonNode {
   type: string
@@ -303,8 +304,15 @@ export async function writeDocx(doc: WordDocumentContent): Promise<Blob> {
     }
   }
 
+  // Must run after every zip.file()/zip.folder() call above and right before
+  // generateAsync(), so the archive's bytes depend only on document content, not on the
+  // wall-clock moment the export happened to run (see speichern-exportieren-qa.md
+  // Testfall 11 / zipDeterminism.ts).
+  stampZipEntriesForDeterminism(zip)
+
   return zip.generateAsync({
     type: 'blob',
     mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    compression: 'DEFLATE',
   })
 }

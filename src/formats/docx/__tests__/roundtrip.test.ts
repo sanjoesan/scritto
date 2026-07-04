@@ -1,6 +1,12 @@
 import { writeDocx } from '../writer'
 import { readDocx } from '../reader'
 import type { WordDocumentContent } from '../../shared/documentModel'
+import {
+  readZipEntryInfo,
+  readZipEntryCompressionMethods,
+  ZIP_COMPRESSION_DEFLATE,
+  withMockedDate,
+} from '../../shared/__tests__/zipInspect'
 
 const TINY_PNG =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
@@ -404,5 +410,53 @@ describe('DOCX round trip: whole-document fidelity', () => {
     expect((result.footer as any).content[0].content[0].text).toBe('Seite')
     const types = (result.body as any).content.map((n: any) => n.type)
     expect(types).toEqual(['heading', 'paragraph', 'bullet_list', 'table', 'image'])
+  })
+})
+
+describe('DOCX writer: package compression (speichern-exportieren-code.md Bug 1.6)', () => {
+  it('compresses the generated package with DEFLATE, not Stored', async () => {
+    const blob = await writeDocx(doc([paragraph('Text zum Komprimieren, wiederholt. '.repeat(200))]))
+    const buffer = Buffer.from(await blob.arrayBuffer())
+    const methods = readZipEntryCompressionMethods(buffer)
+
+    expect(methods.size).toBeGreaterThan(0)
+    expect(methods.get('word/document.xml')).toBe(ZIP_COMPRESSION_DEFLATE)
+    expect(methods.get('[Content_Types].xml')).toBe(ZIP_COMPRESSION_DEFLATE)
+
+    // Independent, effect-based proof (not just the declared method byte): a highly
+    // repetitive document.xml entry must actually shrink under DEFLATE, i.e. its
+    // compressed size on disk is smaller than its uncompressed size.
+    const info = readZipEntryInfo(buffer)
+    const documentEntry = info.get('word/document.xml')!
+    expect(documentEntry.uncompressedSize).toBeGreaterThan(1000)
+    expect(documentEntry.compressedSize).toBeLessThan(documentEntry.uncompressedSize)
+  })
+})
+
+describe('DOCX writer: export determinism (speichern-exportieren-qa.md Testfall 11)', () => {
+  it('produces byte-identical output for the same document exported at two different wall-clock times', async () => {
+    // Anforderung (speichern-exportieren-req.md, Abschnitt 2 & Testfall 11): two
+    // consecutive exports of an unchanged document must be "inhaltlich identisch"
+    // ("deterministisches Re-Export"). This test isolates the wall-clock dimension of
+    // that requirement (as opposed to E2E timing, which only *sometimes* crosses a
+    // timestamp boundary depending on real test execution speed — see
+    // tests/e2e/save-export-lifecycle.spec.ts Testfall 11, which was observed to fail
+    // intermittently for exactly this reason).
+    const content = doc([paragraph('Unveraendert')])
+    const blobA = await withMockedDate('2024-01-01T00:00:00Z', () => writeDocx(content))
+    const blobB = await withMockedDate('2024-01-01T00:00:03Z', () => writeDocx(content))
+    const bufA = Buffer.from(await blobA.arrayBuffer())
+    const bufB = Buffer.from(await blobB.arrayBuffer())
+
+    // FIXED (found during QA of speichern-exportieren, not one of Bug 1.1-1.7 in
+    // speichern-exportieren-code.md): `writeDocx` used to call `zip.file(name, data)`
+    // without an explicit `date` option throughout, so JSZip embedded `new Date()`
+    // (the moment of the export call) into every entry's ZIP-internal last-modified
+    // timestamp (2-second DOS resolution), making two exports of the identical
+    // document differ in bytes whenever real time crossed that boundary between
+    // clicks. writer.ts now calls stampZipEntriesForDeterminism(zip) right before
+    // generateAsync(), pinning every entry's date to a fixed constant — this is now a
+    // regression test, not a currently-known defect.
+    expect(Buffer.compare(bufA, bufB)).toBe(0)
   })
 })

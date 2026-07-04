@@ -15,6 +15,14 @@ export default defineConfig({
     url: 'http://localhost:4173/salamanido/',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
+    env: {
+      // Enables the build-flag-gated `window.__testHooks__.forceNextExportError` used by
+      // tests/e2e/export-error-handling.spec.ts (Testfall 12). Only this Playwright build
+      // gets it — the CI job's separate standalone `npm run build` step and the deploy
+      // job's build both run without this variable, so production/GitHub Pages bundles
+      // never include the hook.
+      VITE_ENABLE_TEST_HOOKS: 'true',
+    },
   },
   projects: [
     { name: 'Desktop Chrome', use: { ...devices['Desktop Chrome'] } },
