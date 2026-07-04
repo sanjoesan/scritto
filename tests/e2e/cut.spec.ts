@@ -69,6 +69,9 @@ test('Testfall 1: Text per Maus markieren und mit Strg+X ausschneiden entfernt i
   await page.keyboard.down('Shift')
   for (let i = 0; i < 'Dieser Satz'.length; i++) await page.keyboard.press('ArrowRight', { delay: 20 })
   await page.keyboard.up('Shift')
+  // A short wait lets the async native-selection-change sync catch up before
+  // the next keystroke fires (same race documented in selection-regression.spec.ts).
+  await page.waitForTimeout(50)
 
   await page.keyboard.press('ControlOrMeta+x')
 
@@ -170,6 +173,9 @@ test('Testfall 6: Ausschneiden innerhalb einer Tabellenzelle entfernt nur den Ze
   await page.keyboard.down('Shift')
   await page.keyboard.press('End')
   await page.keyboard.up('Shift')
+  // A short wait lets the async native-selection-change sync catch up before
+  // the next keystroke fires (same race documented in selection-regression.spec.ts).
+  await page.waitForTimeout(50)
   await page.keyboard.press('ControlOrMeta+x')
 
   await expect(cells).toHaveCount(4)
@@ -286,6 +292,9 @@ test('Grenzfall 3: Selektion über eine Absatzgrenze hinweg führt Reste sauber 
   await page.keyboard.press('ArrowUp', { delay: 20 })
   await page.keyboard.press('ArrowUp', { delay: 20 })
   await page.keyboard.up('Shift')
+  // A short wait lets the async native-selection-change sync catch up before
+  // the next keystroke fires (same race documented in selection-regression.spec.ts).
+  await page.waitForTimeout(50)
   await page.keyboard.press('ControlOrMeta+x')
   await expect(page.locator('.ProseMirror p')).toHaveCount(1)
 })
@@ -318,12 +327,18 @@ test('Grenzfall 13: Ausschneiden direkt am Dokumentanfang bzw. -ende bleibt edit
   await page.keyboard.press('ArrowRight', { delay: 20 })
   await page.keyboard.press('ArrowRight', { delay: 20 })
   await page.keyboard.up('Shift')
+  // A short wait lets the async native-selection-change sync catch up before
+  // the next keystroke fires (same race documented in selection-regression.spec.ts).
+  await page.waitForTimeout(50)
   await page.keyboard.press('ControlOrMeta+x')
   await expect(editor).toHaveText('CDEF')
   await page.keyboard.press('End')
   await page.keyboard.down('Shift')
   await page.keyboard.press('ArrowLeft', { delay: 20 })
   await page.keyboard.up('Shift')
+  // A short wait lets the async native-selection-change sync catch up before
+  // the next keystroke fires (same race documented in selection-regression.spec.ts).
+  await page.waitForTimeout(50)
   await page.keyboard.press('ControlOrMeta+x')
   await expect(editor).toHaveText('CDE')
   await page.keyboard.type('X')
@@ -357,6 +372,9 @@ test('Grenzfall 17: Ausschneiden der einzigen nicht-leeren Zelle lässt eine gü
   await page.keyboard.down('Shift')
   await page.keyboard.press('End')
   await page.keyboard.up('Shift')
+  // A short wait lets the async native-selection-change sync catch up before
+  // the next keystroke fires (same race documented in selection-regression.spec.ts).
+  await page.waitForTimeout(50)
   await page.keyboard.press('ControlOrMeta+x')
   await expect(cells).toHaveCount(4)
   await expect(cells.nth(0)).toHaveText('')
@@ -465,6 +483,9 @@ test('Rundreise 1 (DOCX): Text ausschneiden, exportieren, Zip-Inhalt zeigt korre
   await page.keyboard.down('Shift')
   for (let i = 0; i < 'Wird entfernt.'.length; i++) await page.keyboard.press('ArrowRight', { delay: 15 })
   await page.keyboard.up('Shift')
+  // A short wait lets the async native-selection-change sync catch up before
+  // the next keystroke fires (same race documented in selection-regression.spec.ts).
+  await page.waitForTimeout(50)
   await page.keyboard.press('ControlOrMeta+x')
   await expect(editor).toHaveText('Bleibt erhalten. ')
 
@@ -489,6 +510,9 @@ test('Rundreise 2 (ODT): identische Sequenz wie Rundreise 1, gegen content.xml g
   await page.keyboard.down('Shift')
   for (let i = 0; i < 'Wird entfernt.'.length; i++) await page.keyboard.press('ArrowRight', { delay: 15 })
   await page.keyboard.up('Shift')
+  // A short wait lets the async native-selection-change sync catch up before
+  // the next keystroke fires (same race documented in selection-regression.spec.ts).
+  await page.waitForTimeout(50)
   await page.keyboard.press('ControlOrMeta+x')
 
   const downloadPromise = page.waitForEvent('download')
