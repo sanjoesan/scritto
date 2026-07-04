@@ -73,6 +73,22 @@ export function insertImage(src: string, alt = ''): Command {
   }
 }
 
+/**
+ * Inserts a `hard_break` at the current selection. Without this there is no
+ * in-app way to create a `hard_break` at all (readers/writers already
+ * round-trip it correctly, see specs/kopieren-code.md Abschnitt 0.5), which
+ * makes the "copy a line break" behaviour untestable except via a file-import
+ * detour. See specs/kopieren-code.md Abschnitt 2.4.
+ */
+export function insertHardBreak(): Command {
+  return (state, dispatch) => {
+    if (dispatch) {
+      dispatch(state.tr.replaceSelectionWith(wordSchema.nodes.hard_break.create()).scrollIntoView())
+    }
+    return true
+  }
+}
+
 export function insertTable(rows: number, cols: number): Command {
   return (state, dispatch) => {
     if (dispatch) {

@@ -34,5 +34,22 @@ export default defineConfig({
     { name: 'Desktop Chrome', use: { ...devices['Desktop Chrome'], permissions: ['clipboard-read', 'clipboard-write'] } },
     { name: 'Mobile', use: { ...devices['Pixel 7'], permissions: ['clipboard-read', 'clipboard-write'] } },
     { name: 'Tablet', use: { ...devices['iPad Mini'] } },
+    {
+      // WebKit desktop coverage for the "Kopieren" browser matrix (see
+      // specs/kopieren-code.md Entscheidung 2.2) — Desktop, not Touch, so
+      // Strg/Cmd+C/V behave like a real desktop Safari user. Scoped to the
+      // clipboard spec only, to avoid doubling the runtime of the whole suite
+      // (docx/odt/lifecycle/selection-regression/... stay on Chromium+Mobile+Tablet).
+      name: 'Desktop Safari (Clipboard)',
+      testMatch: /clipboard.*\.spec\.ts/,
+      use: { ...devices['Desktop Safari'] },
+    },
+    {
+      // Firefox coverage for the same reason — not represented by any other
+      // project (Mobile/Tablet are both Chromium/WebKit, see kopieren-code.md).
+      name: 'Desktop Firefox (Clipboard)',
+      testMatch: /clipboard.*\.spec\.ts/,
+      use: { ...devices['Desktop Firefox'] },
+    },
   ],
 })

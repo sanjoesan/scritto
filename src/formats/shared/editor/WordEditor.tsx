@@ -9,7 +9,8 @@ import { tableEditing, columnResizing } from 'prosemirror-tables'
 import { dropCursor } from 'prosemirror-dropcursor'
 import { gapCursor } from 'prosemirror-gapcursor'
 import { wordSchema } from '../schema'
-import { cutSelection } from './commands'
+import { cutSelection, insertHardBreak } from './commands'
+import { clipboardTextSerializer } from './clipboard'
 import { createPaginationPlugin } from './pagination'
 import { pageBackgroundStyle, PAGE_WIDTH_PX, PAGE_MARGIN_PX } from './pageLayout'
 import { Toolbar } from './Toolbar'
@@ -48,6 +49,19 @@ function reconcileSelectionOnClick(view: EditorView, event: MouseEvent) {
   }
 }
 
+/**
+ * Auto-dismisses a transient, visible notice after `ms` — used by the
+ * "Ausschneiden" error banner (red, role="alert"). `setValue` is a stable React
+ * state setter, so the effect only re-runs when the message itself changes.
+ */
+function useAutoDismiss(value: string | null, setValue: (value: null) => void, ms = 4000) {
+  useEffect(() => {
+    if (!value) return
+    const id = window.setTimeout(() => setValue(null), ms)
+    return () => window.clearTimeout(id)
+  }, [value, setValue, ms])
+}
+
 export function WordEditor({ document: doc, onChange }: FormatEditorProps<WordDocumentContent>) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
@@ -56,13 +70,8 @@ export function WordEditor({ document: doc, onChange }: FormatEditorProps<WordDo
   const [, forceRender] = useState(0)
   const [cutError, setCutError] = useState<string | null>(null)
 
-  // Auto-dismiss the "Ausschneiden" error feedback — visible but not a
-  // blocking, permanent state.
-  useEffect(() => {
-    if (!cutError) return
-    const id = window.setTimeout(() => setCutError(null), 4000)
-    return () => window.clearTimeout(id)
-  }, [cutError])
+  // Visible-but-transient feedback (never a permanent/blocking state).
+  useAutoDismiss(cutError, setCutError)
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -74,10 +83,18 @@ export function WordEditor({ document: doc, onChange }: FormatEditorProps<WordDo
       plugins: [
         history(),
         keymap({
+          // Mod-c/Mod-x/Mod-v are deliberately NOT bound here: copy/cut/paste
+          // run exclusively through ProseMirror's native clipboard default
+          // handler (prosemirror-view, handlers.copy/cut/paste) plus the
+          // `clipboardTextSerializer` set below. Any future keymap addition
+          // must be checked against accidentally swallowing these via an
+          // overly broad binding. See specs/kopieren-req.md Abschnitt 3,
+          // specs/kopieren-code.md Abschnitt 8.
           'Mod-z': undo,
           'Mod-y': redo,
           'Mod-Shift-z': redo,
           Enter: splitListItem(wordSchema.nodes.list_item),
+          'Shift-Enter': insertHardBreak(),
           'Mod-b': toggleMark(wordSchema.marks.strong),
           'Mod-i': toggleMark(wordSchema.marks.em),
           'Mod-u': toggleMark(wordSchema.marks.underline),
@@ -104,6 +121,7 @@ export function WordEditor({ document: doc, onChange }: FormatEditorProps<WordDo
     // specs/ausschneiden-code.md §1.4/§4, specs/ausschneiden-req.md Abschnitt 1).
     const view = new EditorView(containerRef.current, {
       state,
+      clipboardTextSerializer,
       dispatchTransaction(tr) {
         const newState = view.state.apply(tr)
         view.updateState(newState)

@@ -572,3 +572,90 @@ describe('ODT writer: export determinism (speichern-exportieren-qa.md Testfall 1
     expect(new Set(tableNames).size).toBe(2)
   })
 })
+
+// ---------------------------------------------------------------------------
+// specs/kopieren-qa.md Abschnitt 1.4 — same four describe blocks as
+// src/formats/docx/__tests__/roundtrip.test.ts Abschnitt 1.3, 1:1 transplanted
+// onto writeOdt/readOdt (both readers produce the same WordDocumentContent
+// model, per kopieren-code.md Abschnitt 3.6).
+// ---------------------------------------------------------------------------
+
+describe('ODT round trip: content shape produced by copy/paste of a partially-bold word', () => {
+  it('preserves a bold/non-bold boundary that falls mid-word', async () => {
+    // Entspricht kopieren-req.md Abschnitt 2.2, Testfall 3: Selektion beginnt/endet
+    // mitten in einer Formatierung — hier als bereits kopiertes/eingefügtes Ergebnis
+    // modelliert (zwei Runs mit exakter Zeichengrenze).
+    const original = doc([
+      {
+        type: 'paragraph',
+        attrs: { align: 'left' },
+        content: [
+          { type: 'text', text: 'fe', marks: [{ type: 'strong' }] },
+          { type: 'text', text: 'tt' },
+        ],
+      },
+    ])
+    const result = await roundTrip(original)
+    const runs = (result.body as any).content[0].content
+    expect(runs.map((r: any) => r.text).join('')).toBe('fett')
+    expect(runs.find((r: any) => r.text === 'fe').marks).toEqual([{ type: 'strong' }])
+    expect(runs.find((r: any) => r.text === 'tt').marks ?? []).toEqual([])
+  })
+})
+
+describe('ODT round trip: mixed-blocktype selection (heading + paragraph + list), as produced by copy/paste', () => {
+  it('keeps heading, paragraph, and list distinct after a combined multi-block insert', async () => {
+    // kopieren-req.md Abschnitt 2.2, Testfall 4 / Abschnitt 4, Testfall 3.
+    const original = doc([
+      { type: 'heading', attrs: { level: 2, align: 'left' }, content: [{ type: 'text', text: 'Abschnitt' }] },
+      paragraph('Fließtext.'),
+      {
+        type: 'bullet_list',
+        content: [{ type: 'list_item', content: [paragraph('Punkt A')] }, { type: 'list_item', content: [paragraph('Punkt B')] }],
+      },
+    ])
+    const result = await roundTrip(original)
+    const types = (result.body as any).content.map((n: any) => n.type)
+    expect(types).toEqual(['heading', 'paragraph', 'bullet_list'])
+  })
+})
+
+describe('ODT round trip: whole-cell table selection (as produced by a CellSelection copy/paste)', () => {
+  it('preserves a table pasted as a self-contained slice, including colspan', async () => {
+    // kopieren-req.md Abschnitt 3, Testfall 2 / Abschnitt 5, Grenzfall 5.
+    const original = doc([
+      {
+        type: 'table',
+        content: [
+          { type: 'table_row', content: [{ type: 'table_cell', attrs: { colspan: 2, rowspan: 1 }, content: [paragraph('Kopf')] }] },
+          {
+            type: 'table_row',
+            content: [
+              { type: 'table_cell', attrs: { colspan: 1, rowspan: 1 }, content: [paragraph('A2')] },
+              { type: 'table_cell', attrs: { colspan: 1, rowspan: 1 }, content: [paragraph('B2')] },
+            ],
+          },
+        ],
+      },
+    ])
+    const result = await roundTrip(original)
+    const table = (result.body as any).content[0]
+    expect(table.content[0].content[0].attrs.colspan).toBe(2)
+    expect(table.content[1].content).toHaveLength(2)
+  })
+})
+
+describe('ODT round trip: an inserted-standalone image (as produced by copy/paste of an image-only selection)', () => {
+  it('keeps the image isolated with no adjacent text merged in', async () => {
+    // kopieren-req.md Abschnitt 5, Grenzfall 6.
+    const original: WordDocumentContent = {
+      body: { type: 'doc', content: [paragraph('Davor'), { type: 'image', attrs: { src: TINY_PNG, alt: '' } }, paragraph('Danach')] },
+      header: null,
+      footer: null,
+      meta: { title: '' },
+    }
+    const result = await roundTrip(original)
+    const types = (result.body as any).content.map((n: any) => n.type)
+    expect(types).toEqual(['paragraph', 'image', 'paragraph'])
+  })
+})

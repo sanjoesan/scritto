@@ -80,4 +80,32 @@ test.describe('Selection-sync regression (stale AllSelection after toolbar actio
     await expect(editor).toContainText('Letzter Absatz.')
     await expect(page.locator('.ProseMirror p')).toHaveCount(5)
   })
+
+  // specs/kopieren-req.md Abschnitt 3, Testfall 1: same regression, but with
+  // Kopieren (Strg+C) instead of Enter as the triggering follow-up action —
+  // Kopieren must never itself perturb the selection, so this proves the
+  // stale-AllSelection bug isn't reintroduced/masked by a copy in between.
+  test('select-all, bold, copy, click to reposition, type — both paragraphs must survive', async ({ page }) => {
+    const editor = page.locator('.ProseMirror')
+    await editor.click()
+    await page.keyboard.type('Hallo, das ist ein Test.')
+
+    await page.keyboard.press('ControlOrMeta+a')
+    await page.getByTitle('Fett').click()
+    await page.keyboard.press('ControlOrMeta+a')
+    await page.keyboard.press('ControlOrMeta+c')
+
+    // Re-click inside the now-bold, still-selected text after copying — the
+    // copy itself must not have left/changed a stale selection.
+    await editor.click()
+    await page.keyboard.press('End')
+    // See the identical comment in the first test above.
+    await page.waitForTimeout(50)
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('Zweiter Absatz.')
+
+    await expect(editor).toContainText('Hallo, das ist ein Test.')
+    await expect(editor).toContainText('Zweiter Absatz.')
+    await expect(page.locator('.ProseMirror p')).toHaveCount(2)
+  })
 })

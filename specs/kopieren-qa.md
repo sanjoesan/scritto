@@ -1,703 +1,474 @@
 # Testplan (QA): Feature „Kopieren“
 
-Bezug: `E:\docs\specs\kopieren-req.md` (Anforderung), `E:\docs\specs\kopieren-code.md`
-(Umsetzungsplan, Dateien/Codeänderungen). Dieser Testplan prüft **gegen den in
-`kopieren-code.md` beschriebenen Soll-Zustand** — er ist so geschrieben, dass er
-unmittelbar nach Umsetzung von `kopieren-code.md` Abschnitt 11 (Umsetzungsreihenfolge
-Schritt 1–4) ausführbar ist, und dokumentiert an jeder Stelle, wo eine Testimplementierung
-von einer noch offenen Entscheidung oder einem Blocker abhängt.
+Bezug: `E:\docs\specs\kopieren-req.md` (Anforderung, „erneuter, kritischer
+Verifikationsdurchlauf“), `E:\docs\specs\kopieren-code.md` (Code-Audit),
+`E:\docs\FEATURE-SPEC-DOCX-ODT.md` (Referenzkonventionen). Code- und Teststand gegen die
+Arbeitskopie in `E:\docs` geprüft: alle unten genannten Dateien wurden einzeln gelesen
+(`src/formats/shared/editor/clipboard.ts`, die `__tests__`-Dateien, `tests/e2e/clipboard*.spec.ts`,
+`tests/e2e/selection-regression.spec.ts`, `playwright.config.ts`, die DOCX/ODT-Roundtrip-Tests).
+
+## Rolle & Status dieses Dokuments — WICHTIG (überarbeitet)
+
+**Dieses Dokument wurde vollständig überarbeitet.** Die Vorfassung war ein *Vorab-Plan* aus
+einer Zeit, in der noch kein Kopier-Code existierte — sie markierte jede Testdatei mit
+„(neu)“ und behauptete in ihrem Blocker-Abschnitt wörtlich „**Kein Code existiert noch.**“.
+**Das ist überholt und war sachlich falsch geworden**, genau wie die alten Fassungen von
+`kopieren-req.md`/`kopieren-code.md`, bevor sie neu verankert wurden. Der tatsächliche Stand:
+
+- Der Kopier-Code **existiert** (`clipboard.ts`, `schema.ts hard_break.leafText`, der
+  `clipboardTextSerializer`-Prop in `WordEditor.tsx`).
+- **Alle** in diesem Plan beschriebenen Tests **existieren bereits** und sind implementiert
+  (Unit, E2E, Datei-Rundreise, Cross-Format-Datenebene, Selection-Sync-Kopiervariante,
+  DOCX/ODT-Reader-Writer-Rundreise inkl. der copy/paste-geformten `describe`-Blöcke).
+- Die Browsermatrix (5 Playwright-Projekte inkl. der gescopten Clipboard-Zusatzprojekte
+  Safari+Firefox) **existiert** in `playwright.config.ts`.
+
+Damit ist der Charakter dieses Testplans jetzt identisch mit dem der Anforderung: ein
+**Verifikations- und Auditplan gegen tatsächlich vorhandene Tests**, nicht eine Bauanleitung
+für etwas Nichtexistentes. QA-Aufgabe ist nachzuweisen, dass (a) die vorhandenen Tests
+tatsächlich **grün** sind (nicht nur existieren), (b) sie das SOLL aus `kopieren-req.md`
+Abschnitte 1–5 **vollständig** abdecken, (c) die als **blockiert** markierten Cross-Format-
+Fälle sauber als `test.fixme` (nie als „bestanden“) geführt sind, und (d) die ehrlich
+begrenzte WebKit-Abdeckung **nicht** als „Safari automatisiert grün“ überverkauft wird.
 
 Grundprinzip (siehe Auftrag): Unit-Tests allein reichen nicht. Für jeden Testfall aus
-`kopieren-req.md`, der eine tatsächliche Nutzerinteraktion beschreibt (Tastenkombination,
-Klick, Drag, Datei-Upload, Datei-Export), muss ein **echter, im Browser laufender
-Playwright-Test** existieren, der die Bedienoberfläche tatsächlich bedient (Klicks,
-`page.keyboard.type`/`.press`, `input.setInputFiles`, `page.waitForEvent('download')`)
-und die heruntergeladene Datei tatsächlich öffnet und inhaltlich prüft — nicht nur einen
-internen ProseMirror-/Reader-/Writer-Funktionsaufruf aus einem Testskript heraus.
+`kopieren-req.md`, der eine echte Nutzerinteraktion beschreibt (Tastenkombination, Klick,
+Drag, Datei-Upload, Datei-Export), existiert ein **echter, im Browser laufender
+Playwright-Test**, der die Oberfläche tatsächlich bedient (`page.keyboard.type`/`.press`,
+`page.mouse`, `locator.click`, `input.setInputFiles`, `page.waitForEvent('download')`) und
+das Ergebnis aus dem sichtbaren DOM, der echten Zwischenablage oder — bei Rundreise-Fällen —
+aus der **tatsächlich heruntergeladenen Datei** (via `JSZip` geöffnet) prüft. Kein Testfall
+stellt Kopieren durch einen internen `editorView.dispatch(...)`- oder Funktionsaufruf nach.
 
 ---
 
-## 0. Testumgebung
+## 0. Ist-Zustand: was bereits existiert (verifizierte Bestandsaufnahme)
+
+| Artefakt | Datei | Status (am Code geprüft) |
+|---|---|---|
+| Klartext-Serializer | `src/formats/shared/editor/clipboard.ts` | vorhanden; behandelt den `table_row`-Lauf aus `CellSelection.content()` |
+| `hard_break.leafText = () => '\n'` | `src/formats/shared/schema.ts` | vorhanden (Root-Cause-Fix „Befund A“) |
+| Serializer verdrahtet | `WordEditor.tsx` (`clipboardTextSerializer`-Prop) | vorhanden |
+| Unit: Serializer | `src/formats/shared/editor/__tests__/clipboard.test.ts` (9 Tests) | vorhanden; **eine Lücke**, s. 2.1.1 |
+| Unit: Datenschutz-Scan | `src/formats/shared/editor/__tests__/clipboard-privacy.test.ts` | vorhanden (Scope-Präzisierung s. 2.4) |
+| Unit: Cross-Format-Textparität | `src/formats/shared/__tests__/cross-format-clipboard-content.test.ts` | vorhanden |
+| Unit: DOCX-Rundreise (copy/paste-geformt) | `src/formats/docx/__tests__/roundtrip.test.ts` (4 `describe`-Blöcke) | vorhanden |
+| Unit: ODT-Rundreise (copy/paste-geformt) | `src/formats/odt/__tests__/roundtrip.test.ts` (dieselben 4 Blöcke) | vorhanden |
+| E2E: Kopieren | `tests/e2e/clipboard.spec.ts` (642 Z., 17 Testfälle) | vorhanden |
+| E2E: Datei-Rundreise | `tests/e2e/clipboard-roundtrip.spec.ts` (R-1/R-2/R-6/R-7 + 4× `fixme`) | vorhanden |
+| E2E: Selection-Sync-Kopiervariante | `tests/e2e/selection-regression.spec.ts` (4. Test) | vorhanden |
+| Browsermatrix | `playwright.config.ts` (5 Projekte) | vorhanden |
+
+**Kein Testartefakt ist mehr „neu anzulegen“.** Der Rest dieses Dokuments verifiziert diese
+Bestände und benennt die wenigen echten Verbesserungen (2.1.1, 2.4, WebKit-Ehrlichkeit).
+
+### 0.1 Testumgebung
 
 | Ebene | Befehl | Runner | Ort |
 |---|---|---|---|
 | Unit/Modell | `npm test` (`vitest run`) | Vitest | `src/**/__tests__/*.test.ts` |
-| E2E (echter Browser) | `npm run test:e2e` (`playwright test`) | Playwright, gegen `npm run build && npm run preview` (siehe `playwright.config.ts`) | `tests/e2e/*.spec.ts` |
+| E2E (echter Browser) | `npm run test:e2e` (`playwright test`) | Playwright gegen `npm run build && npm run preview` (`playwright.config.ts`) | `tests/e2e/*.spec.ts` |
 
-Neue Playwright-Projekte (Voraussetzung: `kopieren-code.md` Abschnitt 3.7 ist umgesetzt),
-zusätzlich zu den bestehenden drei (`Desktop Chrome`, `Mobile`, `Tablet`):
+### 0.2 Browsermatrix — reale Abdeckung (ehrlich, **nicht** überverkauft)
 
-| Projekt | Engine | Scope | Zweck |
+Die fünf Projekte in `playwright.config.ts`:
+
+| Projekt | Engine | Scope | Clipboard-Permission | Reale Kopier-Abdeckung |
+|---|---|---|---|---|
+| `Desktop Chrome` | Chromium | ganze Suite | `permissions:['clipboard-read','clipboard-write']` | **vollständig** inkl. Technik B (`clipboard.read()`, T-15; `readText()`, Abschnitt 6/6) |
+| `Mobile` (Pixel 7) | Chromium | ganze Suite | wie oben | Touch-Rundlauf **vollständig** |
+| `Tablet` (iPad Mini) | WebKit | ganze Suite | keine (WebKit) | nur paste-freie Teilmenge (s. u.) |
+| `Desktop Safari (Clipboard)` | WebKit | `testMatch:/clipboard.*\.spec\.ts/` | keine (WebKit) | **nur paste-freie Teilmenge** |
+| `Desktop Firefox (Clipboard)` | Firefox | `testMatch:/clipboard.*\.spec\.ts/` | keine, In-Page-Tastatur-Rundlauf | **voller Kopieren→Einfügen-Rundlauf** |
+
+**Kritische Ehrlichkeitsauflage (`kopieren-code.md` Finding 5.2/5.6):** Nahezu jeder
+aussagekräftige Kopiertest in `clipboard.spec.ts` trägt
+`test.skip(browserName === 'webkit', SKIP_WEBKIT_ROUNDTRIP)`. Auf WebKit (also `Tablet`
+**und** `Desktop Safari (Clipboard)`) laufen real **nur** die paste-freien Tests:
+Kontextmenü-Nichtunterdrückung (Testfall 3/4), Undo-Neutralität (Testfall 3/3),
+Fokus-Isolation. Der Projektname `Desktop Safari (Clipboard)` suggeriert also mehr, als
+ausgeführt wird — das ist so zu **berichten**, nicht zu kaschieren:
+
+- **Firefox** ist von den `webkit`-Skips **nicht** betroffen und fährt den vollen
+  Paste-Rundlauf → es ist die **einzige** automatisierte Nicht-Chromium-Engine, die den
+  Kopieren→Einfügen-Rundlauf prüft. **QA-Handlungspunkt:** beim Verifikationslauf explizit
+  bestätigen, dass `Desktop Firefox (Clipboard)` **grün** ist.
+- **Echtes Apple Safari / echtes Firefox auf realer Hardware** bleibt manueller
+  Abnahmepunkt (`kopieren-req.md` Grenzfall 11 / DoD (d); Abschnitt 6 unten). Playwright-
+  WebKit ist keine 1:1-Kopie von Safari.
+
+### 0.3 Zwei Testtechniken (je Testfall im Code vermerkt)
+
+- **Technik A (In-Page-Tastatur-Rundlauf):** Auswählen → `ControlOrMeta+c` → Cursor
+  umsetzen → `ControlOrMeta+v` → resultierenden DOM prüfen. Nutzt die echte
+  System-Zwischenablage über native Browser-Tastenbehandlung **ohne** Permissions-API,
+  läuft daher engine-unabhängig (auf WebKit trotzdem geskippt, s. 0.2 — dort ist der
+  Rundlauf in Playwright unzuverlässig, nicht die Technik prinzipiell falsch).
+- **Technik B (Rohzugriff `navigator.clipboard.read()`/`readText()`):** nur für
+  MIME-genaue Prüfungen (`text/html`+`text/plain`-Nachweis, tab-getrennter Klartext),
+  **nur `Desktop Chrome`**, im Test mit `test.skip(browserName !== 'chromium', …)` markiert.
+  Dies ist **kein** App-Aufruf von `navigator.clipboard` (Datenschutzprinzip bleibt gewahrt) —
+  es ist reiner Test-Lesezugriff auf die Zwischenablage aus dem Testskript.
+
+---
+
+## 1. Determinismus — Race-Conditions vermeiden (verbindlich für ALLE E2E-Tests)
+
+Dies ist die zentrale Qualitätsauflage des Auftrags und der Grund, warum die vorhandenen
+Specs `clipboard.spec.ts`, `clipboard-roundtrip.spec.ts`, `selection-regression.spec.ts`
+und `cut.spec.ts` einem **gemeinsamen, dokumentierten Wartemuster** folgen. Jeder neue oder
+geänderte Kopier-Test **muss** es einhalten; ein Verstoß gilt als Flake-Risiko und ist im
+Review zu blockieren.
+
+### 1.1 Selektions-Sync abwarten (`settle`) — die Kernregel
+
+ProseMirror erfährt eine native, tastaturgetriebene Cursor-/Selektionsbewegung
+(`Home`, `End`, `Ctrl+Home`, `Ctrl+End`, `ArrowLeft`/`ArrowRight`) **nur** über das
+**asynchrone** `selectionchange`-Event des Browsers. Wird die nächste Taste ohne
+menschliche Reaktionszeit sofort gedrückt — wie es eine `press()`-Kette mit Delay 0 tut —
+kann sie der Sync-Aufholung **vorauslaufen** und noch auf der alten Position wirken. Eine
+echte Tippkadenz löst das nie aus. Deshalb existiert in `clipboard.spec.ts` der Helfer:
+
+```ts
+async function settle(page: Page) {
+  await page.waitForTimeout(50) // gibt dem in-flight selectionchange-Sync Zeit zu landen
+}
+```
+
+**Pflicht:** Nach **jeder** nativen Caret-/Selektionsbewegung, auf die eine weitere
+Tastenaktion folgt, steht ein `await settle(page)` **vor** der Folgetaste. Belegstellen in
+den vorhandenen Specs: `clipboard.spec.ts` Testfall 1 (Z. 97–99: `End` → `settle` → `type`),
+Testfall 2, 2.2/2, 2.2/4, Grenzfall 6/12, T-5, T-14, Grenzfall 7; identisches Muster in
+`selection-regression.spec.ts` (`waitForTimeout(50)` nach `End`, Z. 34/72/103) und
+`clipboard-roundtrip.spec.ts` (`settle`, Z. 41/46/93/98/105). Der Kopiervorgang selbst
+(`ControlOrMeta+c`) verändert die Selektion nicht (`kopieren-req.md` Abschnitt 2.1) und
+braucht danach kein `settle` — das `settle` gehört immer an die **Bewegung**, nicht an das
+Kopieren.
+
+### 1.2 Weitere Determinismus-Regeln (im Bestand belegt, verbindlich)
+
+- **Undo-Gruppierung (`prosemirror-history`):** Vor einem Test, der einen einzelnen
+  Undo-Schritt isolieren muss (Testfall 3/3), steht ein `await page.waitForTimeout(600)`
+  **nach** dem Tippen und **vor** der Folgeaktion, damit `prosemirror-history` die
+  Transaktionen nicht in **einen** Undo-Schritt zusammenfasst (~500 ms Fenster).
+  Beleg: `clipboard.spec.ts:324`.
+- **Shift+Pfeil-Selektion mit `{ delay: 20 }`:** Zeichengenaue Selektionsaufbauten
+  (`T-5` Formatgrenze, Grenzfall 12) drücken `ArrowLeft`/`ArrowRight` mit einem kleinen
+  `delay`, damit jede Selektionserweiterung einzeln synchronisiert und keine Zeichen
+  „verschluckt“ werden. Beleg: `clipboard.spec.ts:349/356/508/520`.
+- **Asynchrone Bild-Einfügung abwarten:** `FileReader.readAsDataURL` (in
+  `Toolbar.tsx handleImagePick`) ist async. Nach `input.setInputFiles(...)` **nie** sofort
+  weitertippen, sondern die resultierende `insertImage()`-Transaktion abwarten:
+  `await expect(editor.locator('img')).toHaveCount(1)`. Beleg: `clipboard.spec.ts:283/598`.
+  Danach steht die Selektion als `NodeSelection` **auf** dem Bild — vor dem Weitertippen
+  `ControlOrMeta+End` + `settle`, sonst ersetzt das Tippen das Bild.
+- **Kein blindes `waitForTimeout` als Ersatz für eine Zusicherung:** Wo ein sichtbarer
+  Zustand prüfbar ist, wird `await expect(...)` (auto-retry) verwendet, nicht ein fester
+  Timeout. `settle` ist ausschließlich für die *nicht* beobachtbare `selectionchange`-
+  Aufholung reserviert.
+- **Dirty-Close-Dialog deterministisch bestätigen:** Tests, die zum Format-Picker
+  zurücknavigieren, während das Quelldokument „dirty“ ist, registrieren **vor** der
+  Navigation `page.on('dialog', d => d.accept())` (bzw. `page.once(...)`), damit der native
+  `window.confirm(...)` aus `DocumentWorkspace.handleClose()` nicht blockiert.
+  Beleg: `clipboard.spec.ts:65`, `clipboard-roundtrip.spec.ts:26`.
+
+---
+
+## 2. Unit-Tests (Vitest)
+
+### 2.1 Serializer: `src/formats/shared/editor/__tests__/clipboard.test.ts`
+
+Reine Node-Ebene, kein DOM, kein `EditorView` (`fakeView = {} as EditorView`, da
+`clipboardTextSerializer` sein `view`-Argument nie liest). Der `serialize(...nodes)`-Helfer
+baut eine `Slice(Fragment.from(nodes), 0, 0)`. **Vorhandene, verifizierte Fälle (9):**
+
+1. 2×2-Tabelle → `A1\tB1\nA2\tB2` (tab-/zeilengetrennt).
+2. Tabelle mit `colspan`/`rowspan` → voller Zellinhalt erhalten.
+3. Bullet-Liste → `- Eins\n- Zwei\n- Drei`.
+4. Nummerierte Liste mit `start: 5` → `5. Erstens\n6. Zweitens`.
+5. Verschachtelte Liste → Unterpunkt eingerückt, strukturell vom Oberpunkt unterscheidbar.
+6. `hard_break` in Absatz → `Zeile1\nZeile2` (Regression Befund A).
+7. Mehrere Top-Level-Blöcke (Überschrift+Absatz+Liste) → Leerzeilen-getrennt.
+8. Leere Slice → `''` ohne Exception.
+9. Regression: `hard_break.spec.leafText` ist definiert und liefert `'\n'`.
+
+#### 2.1.1 (Substanz, HOCH) Echte Lücke: der nackte `table_row`-Lauf ist unit-ungetestet
+
+`kopieren-code.md` Finding 5.1: Die wertvollste Verzweigung von `clipboard.ts`
+(`rowRun`/`flushRowRun`, Z. 29–46) behandelt den Fall, dass `CellSelection.content()` eine
+Slice liefert, deren Top-Level-Fragment ein **nackter Lauf von `table_row`-Knoten** ist
+(nicht in ein `table` gehüllt). Die vorhandenen Unit-Fälle bauen **ausschließlich volle
+`table`-Knoten** (Fall 1/2) — nie einen Zeilen-Lauf auf Slice-Ebene. Diese Kernverzweigung
+ist real **nur** über das E2E T-14a abgedeckt, das auf WebKit geskippt ist. **Empfehlung:**
+zwei plattformunabhängige Unit-Fälle ergänzen (schließt die einzige ungetestete
+Kernverzweigung):
+
+```ts
+it('serialisiert einen nackten table_row-Lauf (CellSelection.content-Form) tab-/zeilengetrennt', () => {
+  const cell = (t: string) => wordSchema.nodes.table_cell.create(null, paragraph(t))
+  const row = (a: string, b: string) => wordSchema.nodes.table_row.create(null, [cell(a), cell(b)])
+  const slice = new Slice(Fragment.from([row('A1', 'B1'), row('A2', 'B2')]), 1, 1)
+  expect(clipboardTextSerializer(slice, fakeView)).toBe('A1\tB1\nA2\tB2')
+})
+
+it('flusht einen Zeilen-Lauf korrekt, wenn ein normaler Block dazwischenliegt', () => {
+  const cell = (t: string) => wordSchema.nodes.table_cell.create(null, paragraph(t))
+  const row = (a: string, b: string) => wordSchema.nodes.table_row.create(null, [cell(a), cell(b)])
+  const slice = new Slice(Fragment.from([row('A1', 'B1'), paragraph('X'), row('A2', 'B2')]), 1, 1)
+  expect(clipboardTextSerializer(slice, fakeView)).toBe('A1\tB1\n\nX\n\nA2\tB2')
+})
+```
+
+#### 2.1.2 (klein) Assertions schärfen (`kopieren-code.md` Finding 5.3)
+
+- Fall 2 (`colspan`/`rowspan`) prüft nur `toContain`. Exakt möglich und aussagekräftiger:
+  `expect(serialize(table)).toBe('Verbunden\nNormal\tZwei')` — hält zugleich fest, dass ein
+  tab-/zeilengetrenntes Klartextraster Spannen bewusst **nicht** durch Auffüllen ausdrückt.
+- Ergänzen: `hard_break` **innerhalb** einer Tabellenzelle → wird durch `rowToPlainText`s
+  `.replace(/\n/g,' ')` (clipboard.ts:70) zu **einem Leerzeichen** (Zelle „a⏎b“ → `"a b"`,
+  nicht `"a\nb"`), damit die Tab-/Zeilenstruktur der Tabelle nicht zerbricht. Ein kurzer
+  Fall dokumentiert diese bewusste Entscheidung.
+- Optional: ein Fall für `unsupported_block` (generischer `default`-Zweig, clipboard.ts:60).
+
+### 2.2 Reader/Writer-Rundreise DOCX **und** ODT (Auftrag Pillar 1) — vorhanden
+
+Kopieren/Einfügen **innerhalb** des Editors erzeugt keinen eigenen Codepfad: es entstehen
+dieselben `wordSchema`-Knoten wie bei getipptem Inhalt. Ein „Rundreise-Test für Kopieren“
+auf Reader/Writer-Ebene bedeutet daher: **exakt die Knotenstrukturen, die ein
+Kopieren/Einfügen gemäß `kopieren-req.md` Abschnitt 2.2 erzeugt**, durch
+`writeDocx`/`readDocx` bzw. `writeOdt`/`readOdt` schicken und Verlustfreiheit prüfen.
+
+**Vorhandene, verifizierte `describe`-Blöcke** — je 4 in `docx/__tests__/roundtrip.test.ts`
+**und** identisch gespiegelt in `odt/__tests__/roundtrip.test.ts`:
+
+1. `content shape produced by copy/paste of a partially-bold word` — Fett/Nicht-Fett-Grenze
+   mitten im Wort bleibt erhalten (zwei Runs mit exakter Zeichengrenze). ↔ req 2.2 Testfall 3.
+2. `mixed-blocktype selection (heading + paragraph + list)` — `heading`/`paragraph`/
+   `bullet_list` bleiben als getrennte Blocktypen erhalten. ↔ req 2.2 Testfall 4 / req 4 Testfall 3.
+3. `whole-cell table selection (as produced by a CellSelection copy/paste)` — Tabelle inkl.
+   `colspan` überlebt als eigenständige Slice. ↔ req 3 Testfall 2 / Grenzfall 5.
+4. `an inserted-standalone image (image-only selection)` — Bild bleibt isoliert, kein
+   Nachbartext wird eingemischt. ↔ req 5 Grenzfall 6.
+
+Zusätzlich decken die **bestehenden** Rundreise-Tests `hard_break` (`w:br`/`text:line-break`,
+`roundtrip.test.ts` „preserves hard_break“) und **Tab-Zeichen/Mehrfach-Leerzeichen auf
+Datenmodell-Ebene** ab („preserves runs of multiple spaces and tab characters“) — die
+Datenmodell-Rundreise für `\t`, die der E2E-Fall (N/A, s. 3.3) nicht leisten kann.
+
+### 2.3 Cross-Format-Textparität (Datenebene) — vorhanden
+
+`src/formats/shared/__tests__/cross-format-clipboard-content.test.ts` schickt denselben
+copy/paste-geformten `WordDocumentContent` einmal durch `writeDocx→readDocx` und einmal
+durch `writeOdt→readOdt` und prüft **inhaltliche Textgleichheit** (`extractText(viaDocx) ===
+extractText(viaOdt)`, Erwartung `'Berichtfett Text.Punkt'`). Legitimer Unit-Fall (rein
+datenmodellseitig, keine UI) und der einzige automatisierte Nachweis für `kopieren-req.md`
+Abschnitt 4 Testfälle 4/5 (DOCX↔ODT) **unabhängig** vom UI-Blocker (fehlender
+Export-Format-Picker, s. 3.4/7).
+
+### 2.4 Datenschutz-Scan (`kopieren-req.md` Abschnitt 5, Grenzfall 15) — vorhanden
+
+`src/formats/shared/editor/__tests__/clipboard-privacy.test.ts` scannt rekursiv `src/`,
+strippt Kommentare (damit *dokumentierende* Nennung der API nicht als *Nutzung* zählt),
+schließt sich selbst über eine `ALLOWED`-Menge aus, und schlägt fehl, sobald irgendeine
+`.ts`/`.tsx`-Datei `navigator.clipboard` real nutzt. **Präzisierung (Finding 5.4):** Der
+Scan prüft *nur* die `navigator.clipboard`-Nichtnutzung. Die weitergehende
+No-Logging-/No-Persistence-Garantie (kein `console.log`/`fetch`/Analytics/`localStorage`/
+`IndexedDB` mit Zwischenablageninhalt) ruht auf dem **Fehlen jedes Capture-Pfads** plus dem
+manuellen Review-Punkt (Abschnitt 6), nicht auf diesem Scan. Der Testname/Kommentar sollte
+das ehrlich abgrenzen; optional den Scan um `clipboard.ts`-spezifische Muster
+(`console\.`, `fetch\(`, `localStorage|indexedDB`) erweitern — reine Härtung, kein
+Funktionsfehler.
+
+---
+
+## 3. E2E-Tests — echte Playwright-Browserbedienung (Auftrag Pillar 2)
+
+Gemeinsamer `beforeEach` (aus dem Bestand): `page.on('dialog', d => d.accept())` → `goto('/')`
+→ Banner „verstanden“ → auf Chromium `context.grantPermissions([...])` → Format-Karte
+(`odtCard`/`docxCard`) „Neu erstellen“. Helfer: `settle` (s. 1.1), `watchForConsoleErrors`
+(sammelt `pageerror`+Konsolen-`error`, Assertion am Testende), `pickColor` (setzt
+`<input type=color>` React-konform über den nativen Value-Setter).
+
+### 3.1 `tests/e2e/clipboard.spec.ts` — vorhandenes Test-Inventar
+
+| ID / Testname (Bestand) | req-Bezug | Technik | WebKit |
 |---|---|---|---|
-| `Desktop Safari (Clipboard)` | WebKit | nur `clipboard*.spec.ts` | Entscheidung 2.2 aus `kopieren-code.md` |
-| `Desktop Firefox (Clipboard)` | Firefox | nur `clipboard*.spec.ts` | dito |
+| Testfall 1: Strg/Cmd+C legt Inhalt ab (Rundlauf via Einfügen), Dokument unverändert | 1 (1/2), 2.1 | A | skip |
+| Testfall 2 / Grenzfall 1: Strg+C ohne Selektion lässt Zwischenablage unangetastet | 5 Grenzfall 1 | A | skip |
+| Testfall 3/4 / Grenzfall 13: `contextmenu`-Event → `defaultPrevented === false` | 1 (4), 5 Grenzfall 13 | DOM-Event | **läuft** |
+| Testfall 2.2/2: Fett+Textfarbe+Hervorhebung kombiniert bleiben erhalten (`strong span span`) | 2.2 Testfall 2 | A | skip |
+| Testfall 2.2/4: Überschrift+Absatz+Liste bleiben unterscheidbar (`h2`/`> p`/`li`) | 2.2 Testfall 4 | A | skip |
+| Testfall 3/2 + Gegenprobe: ganze Zellen → Tabelle beim Einfügen; Textauswahl in Zelle → keine neue Tabelle | 3 Testfall 2, 5 Grenzfall 5 | A + Maus-Drag | skip |
+| Grenzfall 6: allein markiertes Bild kopieren nimmt keinen Nachbartext mit | 5 Grenzfall 6 | A | skip |
+| Testfall 3/3: Kopieren erzeugt keinen eigenen Undo-Schritt (600 ms-Gruppierungswait) | 3 Testfall 3 | A | **läuft** |
+| Grenzfall 12: schnelles Wechsel-Kopieren — letzter Vorgang gewinnt | 5 Grenzfall 12 | A | skip |
+| Fokus-Isolation: Strg+C bei fokussiertem Farbwähler wirft nicht, leakt nichts | 3 Testfall 4 | A | **läuft** |
+| Abschnitt 6/6: Tabelle als `text/plain` → `readText()` enthält `A1\tB1` | 2.1, 6 | B | nur Chromium |
+| T-14a: Tabelle → natives `<textarea>` → `A1\tB1\nA2\tB2` | 6 | A + `<textarea>`-Ziel | skip |
+| T-14b: Liste → natives `<textarea>` → `- Eins\n- Zwei` | 6 | A + `<textarea>`-Ziel | skip |
+| T-15: `clipboard.read()` enthält `text/html` **und** `text/plain` | 2.1 (Multi-MIME) | B | nur Chromium |
+| T-5: Teilselektion an der Fett/Nicht-Fett-Grenze bleibt unformatiert (kein Off-by-one) | 2.2 Testfall 3, 5 Grenzfall 3 | A | skip |
+| T-12: Strg+C bei fokussiertem `input[type=file]` wirft nicht, leakt Markertext nicht | 3 Testfall 4 | A | skip |
+| Grenzfall 7: Kopieren mit ~3 MB-Bild in Selektion — hartes Zeitbudget `< 5000 ms` | 5 Grenzfall 7 | A | skip |
+| Tablet-Viewport: Selektion + C/V unter Touch-Emulation | 1 Testfall 5 | A | skip (Touch-Rundlauf via Mobile/Chromium) |
 
-Alle Clipboard-E2E-Tests müssen auf **mindestens** `Desktop Chrome`, `Desktop Safari
-(Clipboard)`, `Desktop Firefox (Clipboard)` grün sein; `Tablet` zusätzlich für die
-Touch-spezifischen Fälle (Abschnitt 3.2, Testfall T-13). `Mobile` wird für Clipboard nicht
-gesondert verlangt (Anforderung listet nur „Touch-Gerät“ als Tablet-Fall, `kopieren-req.md`
-Abschnitt 1, Zeile 70).
+**Techniknotiz zu Testfall 3/2 (heikelster Fall):** Ein reiner `locator.click()` erzeugt nur
+`TextSelection`; `prosemirror-tables` stuft erst durch echtes Ziehen über eine Zellgrenze
+(`page.mouse.down/move({steps:5})/up` zwischen zwei Zell-`boundingBox`-Mitten) zu
+`CellSelection` hoch. Das Einfügen erfolgt in ein **neues, tabellenloses** Dokument —
+andernfalls schlösse ProseMirror den offenen Zeilen-Lauf gegen die umgebende Quelltabelle
+(diese wüchse in-place statt eine zweite zu bilden). Der Bild-Fall (Grenzfall 6) wählt das
+Bild bewusst per Tastatur (`Home`→`ArrowLeft` = `selectNodeBackward`) statt per Klick, weil
+das 1×1-Fixture-`<img>` unzuverlässig zu treffen ist.
 
-`context.grantPermissions(['clipboard-read', 'clipboard-write'])` funktioniert laut
-`kopieren-code.md` Abschnitt 2.2 nur unter Chromium. Deshalb zwei Testtechniken, konsequent
-je Testfall vermerkt:
+### 3.2 `tests/e2e/clipboard-roundtrip.spec.ts` — Datei-Rundreise (vorhanden)
 
-- **Technik A (In-Page-Tastatur-Rundlauf):** Auswählen → `ControlOrMeta+c` → Cursor an
-  andere Stelle setzen (Klick) → `ControlOrMeta+v` → resultierenden DOM-Inhalt prüfen.
-  Läuft auf **allen** Engines identisch, da echte Browser-Zwischenablage-Mechanik ohne
-  Permissions-API genutzt wird.
-- **Technik B (Rohzugriff via `navigator.clipboard.read()`):** nur für MIME-Typ-genaue
-  Prüfungen (`text/html`-Rohinhalt, Multi-MIME-Nachweis), **nur auf `Desktop Chrome`**
-  lauffähig, mit `test.skip(browserName !== 'chromium', …)` in den betroffenen Tests markiert.
+Struktur wie `docx.spec.ts`/`odt.spec.ts`: Dokument aufbauen → `getByRole('button',{name:
+'Exportieren'}).click()` → `page.waitForEvent('download')` → heruntergeladene Datei mit
+`fs.readFile((await download.path())!)` lesen → mit `JSZip.loadAsync` öffnen → **echten**
+`word/document.xml` bzw. `content.xml`-Inhalt prüfen (nicht den DOM vor Export).
 
----
+- **R-1 (DOCX):** zusammengesetztes Dokument (Überschrift 1 + teils fetter Absatz) →
+  markieren → kopieren → in **zweites, neues, leeres** Dokument einfügen → DOCX exportieren →
+  im XML `Bericht` + `Formatierter Text.` (nach Tag-Strip) + `<w:b/>` + `Heading1|w:pStyle`.
+- **R-2 (ODT):** analog → `content.xml` mit `fo:font-weight="bold"` + `text:h`.
+- **R-6:** Zwischenablage überlebt Schließen von Dokument A und Öffnen eines frischen B
+  (dokumentierter Ersatzweg, da die App nur **ein** aktives Dokument zeigt).
+- **R-7 (parametrisiert):** je Merkmal aus req 2.2 (Kursiv `<w:i/>`, Unterstrichen `<w:u `,
+  Durchgestrichen `<w:strike/>`, Bullet-Liste `numPr|w:numId`, Nummerierte Liste
+  `numPr|w:numId`): kopieren/einfügen → DOCX-Export → Markup im echten XML vorhanden.
 
-## 1. Unit-Tests
+**`test.fixme` (korrekt als BLOCKIERT geführt, nicht „bestanden“):**
+- **R-3** DOCX→ODT, **R-4** ODT→DOCX, **R-5** DOCX→ODT→DOCX: blockiert durch die fehlende
+  Export-Format-Wahl in der UI (`DocumentWorkspace.tsx handleExport` ist ans Ursprungsformat
+  gebunden). Gehört zu `FEATURE-SPEC-DOCX-ODT.md` Abschnitt 1.3, **nicht** zu „Kopieren“
+  (`kopieren-code.md` Abschnitt 0.4, Handoff Abschnitt 6). Scharf schalten, sobald der
+  Format-Picker existiert.
+- **Tab-Zeichen**-Rundreise: `test.fixme` mit Begründung — es gibt **keinen** Tastatur-/
+  Toolbar-Weg, ein literales `\t` in `.ProseMirror` einzugeben (Tab wechselt den Fokus).
+  Produktlücke, an req/code zurückzumelden; Datenmodell-Rundreise für `\t` bleibt in
+  `docx/__tests__/roundtrip.test.ts` (s. 2.2).
 
-### 1.1 `src/formats/shared/editor/__tests__/clipboard.test.ts` (neu)
+### 3.3 `tests/e2e/selection-regression.spec.ts` — Selection-Sync × Kopieren (vorhanden)
 
-Voraussetzung: `src/formats/shared/editor/clipboard.ts` existiert
-(`kopieren-code.md` Abschnitt 3.2). Reine Node-Ebene, kein DOM, kein `EditorView` —
-`clipboardTextSerializer(slice, view)` wird direkt mit von Hand gebauten
-`wordSchema`-Knoten aufgerufen (`view`-Parameter wird von der aktuell entworfenen
-Implementierung nicht verwendet, daher `undefined!`/`null as any` in Tests zulässig,
-mit Kommentar, warum).
+Vierter Test im bestehenden `describe`: `Alles auswählen → Fett → Ctrl+A → Ctrl+C → Klick
+zum Neupositionieren → End → settle(50 ms) → Enter → tippen` → beide Absätze überleben
+(`p`-Count = 2). Beweist, dass ein zwischengeschaltetes Kopieren die Selektions-Sync **nicht**
+korrumpiert (`kopieren-req.md` Abschnitt 3, Testfall 1 / Pflicht-Regressionstest). Bewusst in
+dieser Datei (etablierter Ort für Selection-Sync-Regressionen), nicht in `clipboard.spec.ts`.
 
-```ts
-import { Slice, Fragment } from 'prosemirror-model'
-import { wordSchema } from '../../schema'
-import { clipboardTextSerializer } from '../clipboard'
+### 3.4 Was E2E **nicht** leisten kann (bewusst, dokumentiert)
 
-function fullSlice(...nodes: import('prosemirror-model').Node[]) {
-  return new Slice(Fragment.from(nodes), 0, 0)
-}
-
-function paragraph(text: string) {
-  return wordSchema.nodes.paragraph.create({ align: 'left' }, text ? wordSchema.text(text) : null)
-}
-
-function cell(text: string, attrs: { colspan?: number; rowspan?: number } = {}) {
-  return wordSchema.nodes.table_cell.create(
-    { colspan: attrs.colspan ?? 1, rowspan: attrs.rowspan ?? 1 },
-    paragraph(text),
-  )
-}
-
-function row(...cells: import('prosemirror-model').Node[]) {
-  return wordSchema.nodes.table_row.create(null, cells)
-}
-
-describe('clipboardTextSerializer', () => {
-  it('serializes a 2x2 table as tab-separated cells, newline-separated rows', () => {
-    const table = wordSchema.nodes.table.create(null, [row(cell('A1'), cell('B1')), row(cell('A2'), cell('B2'))])
-    expect(clipboardTextSerializer(fullSlice(table), undefined as never)).toBe('A1\tB1\nA2\tB2')
-  })
-
-  it('serializes a bullet list with a "- " marker per item, not a paragraph chain', () => {
-    const list = wordSchema.nodes.bullet_list.create(null, [
-      wordSchema.nodes.list_item.create(null, paragraph('Eins')),
-      wordSchema.nodes.list_item.create(null, paragraph('Zwei')),
-      wordSchema.nodes.list_item.create(null, paragraph('Drei')),
-    ])
-    expect(clipboardTextSerializer(fullSlice(list), undefined as never)).toBe('- Eins\n- Zwei\n- Drei')
-  })
-
-  it('serializes an ordered list with a numeric marker honoring a non-default start', () => {
-    const list = wordSchema.nodes.ordered_list.create({ start: 5 }, [
-      wordSchema.nodes.list_item.create(null, paragraph('Fünf')),
-      wordSchema.nodes.list_item.create(null, paragraph('Sechs')),
-    ])
-    expect(clipboardTextSerializer(fullSlice(list), undefined as never)).toBe('5. Fünf\n6. Sechs')
-  })
-
-  it('serializes a nested list with indentation and no lost items', () => {
-    const inner = wordSchema.nodes.bullet_list.create(null, [wordSchema.nodes.list_item.create(null, paragraph('Unterpunkt'))])
-    const outer = wordSchema.nodes.bullet_list.create(null, [
-      wordSchema.nodes.list_item.create(null, [paragraph('Oberpunkt'), inner]),
-    ])
-    const text = clipboardTextSerializer(fullSlice(outer), undefined as never)
-    expect(text).toContain('- Oberpunkt')
-    expect(text).toContain('Unterpunkt')
-    expect(text.indexOf('Unterpunkt')).toBeGreaterThan(text.indexOf('Oberpunkt'))
-  })
-
-  it('renders a hard_break as a single newline within a paragraph (regression, Befund A)', () => {
-    const para = wordSchema.nodes.paragraph.create({ align: 'left' }, [
-      wordSchema.text('Zeile1'),
-      wordSchema.nodes.hard_break.create(),
-      wordSchema.text('Zeile2'),
-    ])
-    const text = clipboardTextSerializer(fullSlice(para), undefined as never)
-    // Exakter Wortvergleich, kein Substring-Check: schließt sowohl den ursprünglichen
-    // Bug ("Zeile1Zeile2", spurloses Verschwinden) als auch ein falsches
-    // Leerzeichen-Verhalten ("Zeile1 Zeile2") explizit aus.
-    expect(text).toBe('Zeile1\nZeile2')
-  })
-
-  it('separates top-level blocks (heading, paragraph, list) with a blank line each', () => {
-    const heading = wordSchema.nodes.heading.create({ level: 2, align: 'left' }, wordSchema.text('Titel'))
-    const para = paragraph('Text.')
-    const list = wordSchema.nodes.bullet_list.create(null, [wordSchema.nodes.list_item.create(null, paragraph('Eins'))])
-    expect(clipboardTextSerializer(fullSlice(heading, para, list), undefined as never)).toBe('Titel\n\nText.\n\n- Eins')
-  })
-
-  it('returns an empty string for an empty slice without throwing', () => {
-    expect(clipboardTextSerializer(new Slice(Fragment.empty, 0, 0), undefined as never)).toBe('')
-  })
-
-  it('flattens embedded newlines within a single table cell to spaces (no broken tab grid)', () => {
-    const para = wordSchema.nodes.paragraph.create({ align: 'left' }, [
-      wordSchema.text('Zeile A'),
-      wordSchema.nodes.hard_break.create(),
-      wordSchema.text('Zeile B'),
-    ])
-    const table = wordSchema.nodes.table.create(null, [
-      row(wordSchema.nodes.table_cell.create({ colspan: 1, rowspan: 1 }, para), cell('B1')),
-    ])
-    expect(clipboardTextSerializer(fullSlice(table), undefined as never)).toBe('Zeile A Zeile B\tB1')
-  })
-})
-
-describe('wordSchema.nodes.hard_break — leafText regression (Befund A)', () => {
-  it('defines leafText so Fragment.textBetween no longer swallows the line break', () => {
-    expect(wordSchema.nodes.hard_break.spec.leafText).toBeTypeOf('function')
-    expect(wordSchema.nodes.hard_break.spec.leafText!(wordSchema.nodes.hard_break.create())).toBe('\n')
-  })
-
-  it('doc.textBetween keeps two hard_break-separated lines apart at the schema level', () => {
-    const doc = wordSchema.nodes.doc.create(null, [
-      wordSchema.nodes.paragraph.create({ align: 'left' }, [
-        wordSchema.text('Zeile1'),
-        wordSchema.nodes.hard_break.create(),
-        wordSchema.text('Zeile2'),
-      ]),
-    ])
-    expect(doc.textBetween(0, doc.content.size, '\n\n')).toBe('Zeile1\nZeile2')
-  })
-})
-```
-
-### 1.2 `src/formats/shared/editor/__tests__/clipboard-privacy.test.ts` (neu)
-
-Statischer Vitest, kein DOM. Setzt `kopieren-req.md` Abschnitt 5, Grenzfall 15 automatisiert
-um (ergänzt, nicht ersetzt, den manuellen Review-Punkt aus Abschnitt 4 unten):
-
-```ts
-import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { join } from 'node:path'
-
-const SRC_ROOT = join(__dirname, '..', '..', '..', '..')
-
-function collectSourceFiles(dir: string): string[] {
-  return readdirSync(dir).flatMap((entry) => {
-    const full = join(dir, entry)
-    if (statSync(full).isDirectory()) return collectSourceFiles(full)
-    return /\.(ts|tsx)$/.test(entry) ? [full] : []
-  })
-}
-
-describe('clipboard privacy invariant', () => {
-  it('never calls navigator.clipboard anywhere under src/', () => {
-    const offenders = collectSourceFiles(SRC_ROOT)
-      .map((file) => ({ file, content: readFileSync(file, 'utf8') }))
-      .filter(({ content }) => /navigator\s*\.\s*clipboard/.test(content))
-    expect(offenders.map((o) => o.file)).toEqual([])
-  })
-
-  it('the clipboard module never logs, transmits, or persists its input', () => {
-    const clipboardTs = readFileSync(join(SRC_ROOT, 'formats/shared/editor/clipboard.ts'), 'utf8')
-    expect(clipboardTs).not.toMatch(/console\.(log|warn|error|info)/)
-    expect(clipboardTs).not.toMatch(/\bfetch\s*\(/)
-    expect(clipboardTs).not.toMatch(/localStorage|indexedDB/i)
-  })
-})
-```
-
-### 1.3 DOCX-Reader/Writer-Rundreise — Ergänzung in `src/formats/docx/__tests__/roundtrip.test.ts`
-
-**Wichtig für das Verständnis dieses Abschnitts:** Kopieren/Einfügen **innerhalb** des
-Editors erzeugt keinen eigenen Codepfad — es entstehen dieselben `wordSchema`-Knoten wie
-bei getipptem Inhalt (`kopieren-code.md` Abschnitt 3.6). Ein Rundreise-Test „für Kopieren“
-auf Reader/Writer-Ebene bedeutet deshalb: **exakt die Knotenstrukturen, die ein
-Kopieren/Einfügen-Vorgang gemäß `kopieren-req.md` Abschnitt 2.2 erzeugen würde**, durch
-`writeDocx`/`readDocx` schicken und prüfen, dass nichts verloren geht — unabhängig davon,
-ob der Inhalt getippt oder eingefügt wurde. Das ist keine Doppelung des bestehenden
-Rundreise-Tests, sondern gezielt die in Abschnitt 2.2/4 der Anforderung gelisteten
-Merkmalskombinationen, die die bestehende Datei noch **nicht** einzeln abdeckt.
-
-Neue `describe`-Blöcke, angehängt an die bestehende Datei (gleiche Helfer `doc()`,
-`paragraph()`, `roundTrip()` wiederverwenden):
-
-```ts
-describe('DOCX round trip: content shape produced by copy/paste of a partially-bold word', () => {
-  it('preserves a bold/non-bold boundary that falls mid-word', async () => {
-    // Entspricht kopieren-req.md Abschnitt 2.2, Testfall 3: Selektion beginnt/endet
-    // mitten in einer Formatierung — hier als bereits kopiertes/eingefügtes Ergebnis
-    // modelliert (zwei Runs mit exakter Zeichengrenze).
-    const original = doc([
-      {
-        type: 'paragraph',
-        attrs: { align: 'left' },
-        content: [
-          { type: 'text', text: 'fe', marks: [{ type: 'strong' }] },
-          { type: 'text', text: 'tt' },
-        ],
-      },
-    ])
-    const result = await roundTrip(original)
-    const runs = (result.body as any).content[0].content
-    expect(runs.map((r: any) => r.text).join('')).toBe('fett')
-    expect(runs.find((r: any) => r.text === 'fe').marks).toEqual([{ type: 'strong' }])
-    expect(runs.find((r: any) => r.text === 'tt').marks ?? []).toEqual([])
-  })
-})
-
-describe('DOCX round trip: mixed-blocktype selection (heading + paragraph + list), as produced by copy/paste', () => {
-  it('keeps heading, paragraph, and list distinct after a combined multi-block insert', async () => {
-    // kopieren-req.md Abschnitt 2.2, Testfall 4 / Abschnitt 4, Testfall 3.
-    const original = doc([
-      { type: 'heading', attrs: { level: 2, align: 'left' }, content: [{ type: 'text', text: 'Abschnitt' }] },
-      paragraph('Fließtext.'),
-      {
-        type: 'bullet_list',
-        content: [{ type: 'list_item', content: [paragraph('Punkt A')] }, { type: 'list_item', content: [paragraph('Punkt B')] }],
-      },
-    ])
-    const result = await roundTrip(original)
-    const types = (result.body as any).content.map((n: any) => n.type)
-    expect(types).toEqual(['heading', 'paragraph', 'bullet_list'])
-  })
-})
-
-describe('DOCX round trip: whole-cell table selection (as produced by a CellSelection copy/paste)', () => {
-  it('preserves a table pasted as a self-contained slice, including colspan', async () => {
-    // kopieren-req.md Abschnitt 3, Testfall 2 / Abschnitt 5, Grenzfall 5.
-    const original = doc([
-      {
-        type: 'table',
-        content: [
-          { type: 'table_row', content: [{ type: 'table_cell', attrs: { colspan: 2, rowspan: 1 }, content: [paragraph('Kopf')] }] },
-          {
-            type: 'table_row',
-            content: [
-              { type: 'table_cell', attrs: { colspan: 1, rowspan: 1 }, content: [paragraph('A2')] },
-              { type: 'table_cell', attrs: { colspan: 1, rowspan: 1 }, content: [paragraph('B2')] },
-            ],
-          },
-        ],
-      },
-    ])
-    const result = await roundTrip(original)
-    const table = (result.body as any).content[0]
-    expect(table.content[0].content[0].attrs.colspan).toBe(2)
-    expect(table.content[1].content).toHaveLength(2)
-  })
-})
-
-describe('DOCX round trip: an inserted-standalone image (as produced by copy/paste of an image-only selection)', () => {
-  it('keeps the image isolated with no adjacent text merged in', async () => {
-    // kopieren-req.md Abschnitt 5, Grenzfall 6.
-    const original: WordDocumentContent = {
-      body: { type: 'doc', content: [paragraph('Davor'), { type: 'image', attrs: { src: TINY_PNG, alt: '' } }, paragraph('Danach')] },
-      header: null,
-      footer: null,
-      meta: { title: '' },
-    }
-    const result = await roundTrip(original)
-    const types = (result.body as any).content.map((n: any) => n.type)
-    expect(types).toEqual(['paragraph', 'image', 'paragraph'])
-  })
-})
-```
-
-### 1.4 ODT-Reader/Writer-Rundreise — Ergänzung in `src/formats/odt/__tests__/roundtrip.test.ts`
-
-Dieselben vier `describe`-Blöcke wie 1.3, 1:1 übertragen auf `writeOdt`/`readOdt` (Helfer
-dort analog vorhanden, `expect(...).content[...]` Zugriffspfade identisch, da beide Reader
-dasselbe `WordDocumentContent`-Modell erzeugen). Nicht wörtlich ausgeschrieben, um
-Redundanz in diesem Dokument zu vermeiden — Auftrag an Umsetzung: Datei- und
-Testnamensspiegelung 1:1 zu 1.3, mit `writeOdt`/`readOdt` statt `writeDocx`/`readDocx`.
-
-### 1.5 Cross-Format-Rundreise auf Reader/Writer-Ebene (kein E2E nötig für diesen Teilaspekt)
-
-Ergänzend zu den E2E-Rundreise-Tests (Abschnitt 3.3) — weil dies rein datenmodellseitig ist
-und keine UI-Bedienung erfordert, ist das ein legitimer Unit-Test-Fall, kein Verstoß gegen
-das „echte Browser-Tests“-Prinzip: **neue Datei**
-`src/formats/shared/__tests__/cross-format-clipboard-content.test.ts`, die denselben
-`WordDocumentContent` einmal durch `writeDocx`→`readDocx` und einmal durch
-`writeOdt`→`readOdt` schickt und beide Ergebnisse auf inhaltliche Gleichheit (Text, keine
-Verluste) statt Byte-Gleichheit prüft — Nachweis für `kopieren-req.md` Abschnitt 4,
-Testfälle 4/5 auf Datenebene, unabhängig vom in Abschnitt 3.3/Abschnitt 4 dieses Dokuments
-beschriebenen UI-seitigen Blocker (fehlende Format-Wahl beim Export).
-
-```ts
-import { writeDocx } from '../../docx/writer'
-import { readDocx } from '../../docx/reader'
-import { writeOdt } from '../../odt/writer'
-import { readOdt } from '../../odt/reader'
-import type { WordDocumentContent } from '../documentModel'
-
-function extractText(content: WordDocumentContent): string {
-  const walk = (node: any): string =>
-    node.type === 'text' ? node.text : (node.content ?? []).map(walk).join('')
-  return walk(content.body)
-}
-
-describe('cross-format content parity (DOCX vs. ODT) for a copy/paste-shaped document', () => {
-  it('yields the same extracted text through either format for heading+bold+list+table+image', async () => {
-    const original: WordDocumentContent = {
-      body: {
-        type: 'doc',
-        content: [
-          { type: 'heading', attrs: { level: 1, align: 'left' }, content: [{ type: 'text', text: 'Bericht' }] },
-          {
-            type: 'paragraph',
-            attrs: { align: 'left' },
-            content: [{ type: 'text', text: 'fett', marks: [{ type: 'strong' }] }, { type: 'text', text: ' Text.' }],
-          },
-          { type: 'bullet_list', content: [{ type: 'list_item', content: [{ type: 'paragraph', attrs: { align: 'left' }, content: [{ type: 'text', text: 'Punkt' }] }] }] },
-        ],
-      },
-      header: null,
-      footer: null,
-      meta: { title: '' },
-    }
-    const viaDocx = await readDocx(await writeDocx(original))
-    const viaOdt = await readOdt(await writeOdt(original))
-    expect(extractText(viaDocx)).toBe(extractText(viaOdt))
-    expect(extractText(viaDocx)).toBe('BerichtfettText.Punkt'.replace('Textfett', 'fettText'))
-  })
-})
-```
-*(Der letzte `expect`-String dient nur der Illustration des Vergleichsprinzips und ist bei
-Umsetzung an die tatsächliche `extractText`-Verkettung anzupassen — entscheidend ist der
-Gleichheits-Assert zwischen `viaDocx` und `viaOdt`, nicht der exakte String.)*
+- **Cross-Format-Rundreise** (R-3/4/5): UI-Blocker, s. 3.2 → `test.fixme`.
+- **Tab-Zeichen kopieren**: kein Eingabeweg → `test.fixme`; Datenebene deckt es ab.
+- **Kopf-/Fußzeile/Fußnote/Kommentar** (Grenzfall 14): `WordEditor.tsx` rendert nur
+  `doc.content.body`; zurückgestellt bis diese Bereiche eine Editor-UI erhalten.
 
 ---
 
-## 2. E2E-Tests — echte Playwright-Browserbedienung
+## 4. Manuelle / ergänzende Prüfungen (nicht automatisierbar)
 
-Grundsatz für diesen gesamten Abschnitt: **kein** `page.evaluate(() => editorView.dispatch(...))`
-und **kein** direkter Aufruf einer internen Funktion aus dem Testskript, um „Kopieren“
-nachzustellen. Jeder Testfall führt echte `page.keyboard`/`page.mouse`/`locator.click`-
-Aktionen aus und liest das Ergebnis aus dem sichtbaren DOM, der System-/Browser-
-Zwischenablage oder — für Rundreise-Fälle — aus der tatsächlich heruntergeladenen Datei.
-
-### 2.1 `tests/e2e/clipboard.spec.ts` (neu)
-
-Gemeinsamer Prolog (Konventionen aus `odt.spec.ts`/`selection-regression.spec.ts`
-übernommen: `odtCard`-Helper, `.ProseMirror`-Locator, `getByTitle`-Buttons):
-
-```ts
-import { test, expect } from '@playwright/test'
-
-function odtCard(page: import('@playwright/test').Page) {
-  return page.locator('div.rounded-lg', { has: page.getByRole('heading', { name: 'OpenDocument Text (.odt)' }) })
-}
-
-test.describe('Kopieren (Zwischenablage)', () => {
-  test.beforeEach(async ({ page, browserName }) => {
-    await page.goto('/')
-    await page.getByRole('button', { name: /verstanden/i }).click()
-    if (browserName === 'chromium') {
-      await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
-    }
-    await odtCard(page).getByRole('button', { name: 'Neu erstellen' }).click()
-  })
-
-  // ... Testfälle T-1 bis T-15, siehe unten
-})
-```
-
-| ID | Testfall | Bezug `kopieren-req.md` | Kerntechnik |
+| # | Prüfung | Bezug | Warum manuell |
 |---|---|---|---|
-| T-1 | Text markieren, `ControlOrMeta+c`, Cursor an andere Stelle, `ControlOrMeta+v` → identischer Inhalt kommt an | Abschnitt 1, Testfall 1/2 | Technik A |
-| T-2 | Zuerst Text A kopieren; danach Cursor **ohne Selektion** setzen, `ControlOrMeta+c` erneut drücken; danach einfügen → weiterhin Text A (bisheriger Zwischenablageninhalt unverändert) | Abschnitt 5, Grenzfall 1 | Technik A |
-| T-3 | Synthetisches `contextmenu`-Event auf `.ProseMirror` dispatchen → `event.defaultPrevented === false` | Abschnitt 1, Testfall 4; Grenzfall 13 | `locator.evaluate` (DOM-Event, kein Interna-Aufruf) |
-| T-4 | Fett + Textfarbe + Hervorhebung auf denselben Textlauf anwenden, kopieren, an neuer Stelle einfügen → alle drei Formate im eingefügten Text vorhanden (`getComputedStyle` oder `innerHTML`-Check auf `<strong>`, `color:`, `background-color:`) | Abschnitt 2.2, Testfall 2 | Technik A |
-| T-5 | In einem fett gesetzten Wort nur die zweite Hälfte markieren (`Shift+ArrowLeft` von hinten), kopieren, einfügen → eingefügter Text ist **nicht** fett | Abschnitt 2.2, Testfall 3 | Technik A |
-| T-6 | Überschrift + Absatz + Liste markieren (`ControlOrMeta+a` in einem entsprechend aufgebauten Dokument), kopieren, in neues leeres Dokument einfügen → `h2`, `p`, `ul>li` alle vorhanden | Abschnitt 2.2, Testfall 4 | Technik A |
-| T-7 | Tabelle einfügen, zwei ganze Zellen per `page.mouse.down/move/up` markieren (Drag über Zellgrenze), kopieren, außerhalb der Tabelle einfügen → eingefügtes Ergebnis enthält `table > tr > td` | Abschnitt 3, Testfall 2; Entscheidung 2.3 | Technik A + Maus-Drag |
-| T-8 | Nur Text **innerhalb einer** Zelle markieren (Klick+Drag ohne Zellgrenze zu verlassen), kopieren, außerhalb einfügen → eingefügtes Ergebnis ist reiner Text, **keine** neue `<table>` | Grenzfall 5; Entscheidung 2.3 | Technik A + Maus-Drag (Gegenprobe zu T-7) |
-| T-9 | Bild einfügen, Bild allein anklicken (Node-Selection), kopieren, an anderer Stelle einfügen → eingefügtes Ergebnis enthält **nur** ein `<img>`, keinen umgebenden Text | Grenzfall 6 | Technik A |
-| T-10 | Text tippen (= Änderung), `ControlOrMeta+a`, kopieren (keine Änderung), `ControlOrMeta+z` einmal → Editor ist leer (Undo betraf das Tippen, nicht „Kopieren“) | Abschnitt 3, Testfall 3 | Technik A |
-| T-11 | Vier verschiedene Wörter nacheinander schnell markieren+kopieren (`for`-Schleife ohne Wartezeit), danach einfügen → nur das **letzte** kopierte Wort kommt an | Grenzfall 12 | Technik A |
-| T-12 | Verstecktes `<input type="file">` fokussieren (`page.locator('input[type=file]').focus()`), `ControlOrMeta+c` drücken, `page.on('pageerror', ...)`-Listener registriert → keine Exception; Editor-Inhalt landet nicht in einer parallel geöffneten `<textarea>`-Testfläche | Abschnitt 3, Testfall 4 | Technik A |
-| T-13 | `Tablet`-Projekt: Text per Touch-Drag (`page.touchscreen` bzw. `locator.tap` + Drag) selektieren, `ControlOrMeta+c`/`v` → Rundlauf erfolgreich. **Kommentar im Test:** natives mobiles Kontextmenü selbst ist nicht automatisierbar, dieser Test deckt nur die Tastatur-/Zwischenablage-Mechanik unter Touch-Emulation ab | Abschnitt 1, Testfall 5 | Technik A, Projekt `Tablet` |
-| T-14 | Tabelle/Liste kopieren, in ein zusätzliches natives `<textarea>` einfügen (per `page.evaluate` einmalig ins DOM injiziert, **nicht** um Kopieren zu simulieren, sondern als unabhängiges Klartext-Ziel) → Tab-/Zeilenstruktur entspricht 1.1 (`A1\tB1\nA2\tB2` bzw. `- Eins\n- Zwei`) | Abschnitt 6, Zeile 6 | Technik A |
-| T-15 | *(Nur `Desktop Chrome`)* `navigator.clipboard.read()` nach Kopieren mit Formatierung → mindestens `text/html` und `text/plain` als Typen vorhanden | Abschnitt 2.1 | Technik B, `test.skip(browserName !== 'chromium', 'clipboard.read() ist Chromium-spezifisch')` |
-
-Beispielhafte Umsetzung von T-7/T-8 (Zellauswahl vs. Textauswahl — der technisch
-heikelste Fall, da ein reiner `locator.click()` nur eine `TextSelection` erzeugt und
-`prosemirror-tables` eine `CellSelection` erst durch tatsächliches Ziehen über eine
-Zellgrenze hochstuft):
-
-```ts
-test('copying two whole cells yields a table on paste; copying text inside one cell does not', async ({ page }) => {
-  const editor = page.locator('.ProseMirror')
-  await editor.click()
-  await page.getByRole('button', { name: 'Tabelle einfügen' }).click()
-  const cells = page.locator('.ProseMirror td')
-  await cells.nth(0).click()
-  await page.keyboard.type('A1')
-  await cells.nth(1).click()
-  await page.keyboard.type('B1')
-
-  // T-7: Drag von der Mitte der ersten Zelle zur Mitte der zweiten Zelle → CellSelection.
-  const box0 = (await cells.nth(0).boundingBox())!
-  const box1 = (await cells.nth(1).boundingBox())!
-  await page.mouse.move(box0.x + box0.width / 2, box0.y + box0.height / 2)
-  await page.mouse.down()
-  await page.mouse.move(box1.x + box1.width / 2, box1.y + box1.height / 2, { steps: 5 })
-  await page.mouse.up()
-  await page.keyboard.press('ControlOrMeta+c')
-
-  await page.keyboard.press('End')
-  await page.keyboard.press('Enter')
-  await page.keyboard.press('ControlOrMeta+v')
-  await expect(page.locator('.ProseMirror p + table, .ProseMirror table ~ table')).toHaveCount(1)
-
-  // T-8 (Gegenprobe): reine Textauswahl innerhalb einer einzelnen Zelle.
-  await cells.nth(0).click()
-  await page.keyboard.press('Home')
-  await page.keyboard.press('Shift+ArrowRight')
-  await page.keyboard.press('ControlOrMeta+c')
-  await page.keyboard.press('ControlOrMeta+End')
-  await page.keyboard.press('Enter')
-  const tablesBefore = await page.locator('.ProseMirror table').count()
-  await page.keyboard.press('ControlOrMeta+v')
-  await expect(page.locator('.ProseMirror table')).toHaveCount(tablesBefore)
-})
-```
-
-### 2.2 `tests/e2e/clipboard-roundtrip.spec.ts` (neu)
-
-Struktur exakt wie `docx.spec.ts`/`odt.spec.ts`: Datei per `input.setInputFiles(...)` hochladen
-(oder „Neu erstellen“ + Eingabe), im Editor bedienen, per `page.getByRole('button', { name:
-'Exportieren' }).click()` exportieren, `page.waitForEvent('download')` abwarten, die
-heruntergeladene Datei mit `fs.readFile` einlesen und mit `JSZip` öffnen, dann den
-`document.xml`/`content.xml`-Inhalt tatsächlich auf die erwarteten Merkmale prüfen — **nicht**
-nur den DOM-Zustand vor dem Export.
-
-```ts
-import { test, expect } from '@playwright/test'
-import JSZip from 'jszip'
-
-function odtCard(page: import('@playwright/test').Page) {
-  return page.locator('div.rounded-lg', { has: page.getByRole('heading', { name: 'OpenDocument Text (.odt)' }) })
-}
-function docxCard(page: import('@playwright/test').Page) {
-  return page.locator('div.rounded-lg', { has: page.getByRole('heading', { name: 'Word-Dokument (.docx)' }) })
-}
-
-test.describe('Kopieren + Datei-Rundreise', () => {
-  test.beforeEach(async ({ page, browserName }) => {
-    await page.goto('/')
-    await page.getByRole('button', { name: /verstanden/i }).click()
-    if (browserName === 'chromium') {
-      await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
-    }
-  })
-
-  test('R-1 (DOCX): copy/paste of a composed document, then export, then verify the downloaded file', async ({ page }) => {
-    await docxCard(page).getByRole('button', { name: 'Neu erstellen' }).click()
-    const editor = page.locator('.ProseMirror')
-    await editor.click()
-
-    // Ausgangsdokument mit Überschrift, formatiertem Absatz, Liste, Tabelle, Bild aufbauen.
-    await page.keyboard.type('Bericht')
-    await page.keyboard.press('ControlOrMeta+a')
-    // Absatzformat auf Überschrift 1 setzen
-    await page.getByLabel('Absatzformat').selectOption('1')
-    await page.keyboard.press('End')
-    await page.keyboard.press('Enter')
-    await page.getByLabel('Absatzformat').selectOption('normal')
-    await page.keyboard.type('Formatierter Text.')
-    await page.keyboard.press('Home')
-    await page.keyboard.press('Shift+ArrowRight', ) // erstes Zeichen markieren als stellvertretende Formatierung
-    await page.getByTitle('Fett').click()
-
-    // Alles markieren, kopieren, in ein zweites, neues leeres Dokument einfügen (kopieren-req.md Abschnitt 4, Testfall 3).
-    await page.keyboard.press('ControlOrMeta+End')
-    await page.keyboard.press('ControlOrMeta+a')
-    await page.keyboard.press('ControlOrMeta+c')
-
-    await page.getByRole('button', { name: '← Formate' }).click()
-    await docxCard(page).getByRole('button', { name: 'Neu erstellen' }).click()
-    await page.locator('.ProseMirror').click()
-    await page.keyboard.press('ControlOrMeta+v')
-
-    const downloadPromise = page.waitForEvent('download')
-    await page.getByRole('button', { name: 'Exportieren' }).click()
-    const download = await downloadPromise
-    const fs = await import('node:fs/promises')
-    const exportedBuffer = await fs.readFile((await download.path())!)
-    const zip = await JSZip.loadAsync(exportedBuffer)
-    const documentXml = await zip.file('word/document.xml')!.async('text')
-
-    expect(documentXml).toContain('Bericht')
-    expect(documentXml).toContain('Formatierter Text.')
-    expect(documentXml).toContain('<w:b/>')
-    expect(documentXml).toMatch(/Heading1|w:pStyle/)
-  })
-
-  test('R-2 (ODT): same composed-document copy/paste, exported as ODT', async ({ page }) => {
-    // Analog R-1, mit odtCard statt docxCard und content.xml statt word/document.xml.
-    // Erwartungen: enthält Text, "font-weight:bold" bzw. äquivalentes ODT-Fett-Merkmal,
-    // Überschrift als text:h.
-  })
-
-  test.fixme(
-    'R-3 (Cross-Format DOCX→ODT): blocked — no export-format picker exists yet, see kopieren-code.md Abschnitt 0.4/9',
-    async () => {},
-  )
-
-  test.fixme(
-    'R-4 (Cross-Format ODT→DOCX): blocked, same reason as R-3',
-    async () => {},
-  )
-
-  test.fixme(
-    'R-5 (double cross-format round trip DOCX→ODT→DOCX): blocked, same reason as R-3',
-    async () => {},
-  )
-
-  test('R-6: clipboard survives closing document A and opening a fresh document B', async ({ page }) => {
-    // kopieren-req.md Abschnitt 4, Testfall 6 — die App zeigt jeweils ein aktives
-    // Dokument; "zwei gleichzeitig geöffnete Dokumente" ist architektonisch nicht
-    // vorgesehen (kopieren-code.md Abschnitt 6.3, Punkt 6). Getestet wird deshalb der
-    // dokumentierte Ersatzweg: schließen + neu öffnen, Systemzwischenablage bleibt bestehen.
-    await docxCard(page).getByRole('button', { name: 'Neu erstellen' }).click()
-    await page.locator('.ProseMirror').click()
-    await page.keyboard.type('Inhalt aus Dokument A')
-    await page.keyboard.press('ControlOrMeta+a')
-    await page.keyboard.press('ControlOrMeta+c')
-
-    page.once('dialog', (dialog) => dialog.accept())
-    await page.getByRole('button', { name: '← Formate' }).click()
-    await docxCard(page).getByRole('button', { name: 'Neu erstellen' }).click()
-    await page.locator('.ProseMirror').click()
-    await page.keyboard.press('ControlOrMeta+v')
-
-    await expect(page.locator('.ProseMirror')).toContainText('Inhalt aus Dokument A')
-  })
-})
-```
-
-**Wichtiger Hinweis zur Umsetzung von R-1/R-2:** Der Toolbar hat keinen Undo/Redo-Button und
-kein `insertHardBreak`-UI-Element außer `Shift-Enter` (voraussetzt `kopieren-code.md`
-Abschnitt 3.3/3.4 ist umgesetzt) — ein vollständiger Testfall, der **jede** Zeile aus
-`kopieren-req.md` Abschnitt 2.2 einzeln plus Datei-Rundreise abdeckt (Anforderung Abschnitt 4,
-Testfall 7), sollte als **parametrisierte** Testreihe (`test.each`-Äquivalent über ein Array
-von Merkmalsbeschreibungen) ausgebaut werden, nicht nur als das eine kombinierte
-Testdokument oben — dieses Dokument zeigt das Gerüst, die vollständige Parametrisierung ist
-Teil der Implementierung dieses Testplans, nicht separat hier auszuschreiben.
-
-### 2.3 Erweiterung `tests/e2e/selection-regression.spec.ts`
-
-Neuer, vierter Test im bestehenden `describe`-Block (Datei existiert bereits, siehe
-Zitat unten) — Selection-Sync-Interferenz **mit Kopieren als auslösender Aktion** statt nur
-Toolbar+Klick+Enter, exakt `kopieren-req.md` Abschnitt 3, Testfall 1:
-
-```ts
-test('select-all, bold, copy, click to reposition, and type — copying must not corrupt the selection sync', async ({
-  page,
-}) => {
-  const editor = page.locator('.ProseMirror')
-  await editor.click()
-  await page.keyboard.type('Hallo, das ist ein Test.')
-
-  await page.keyboard.press('ControlOrMeta+a')
-  await page.getByTitle('Fett').click()
-  await page.keyboard.press('ControlOrMeta+c') // <- einziger Unterschied zum bestehenden Regressionstest
-
-  await editor.click()
-  await page.keyboard.press('End')
-  await page.keyboard.press('Enter')
-  await page.keyboard.type('Zweiter Absatz.')
-
-  await expect(editor).toContainText('Hallo, das ist ein Test.')
-  await expect(editor).toContainText('Zweiter Absatz.')
-  await expect(page.locator('.ProseMirror p')).toHaveCount(2)
-})
-```
-
-Bewusst in dieser Datei (nicht in `clipboard.spec.ts`), weil sie der bereits etablierte Ort
-für Selection-Sync-Regressionen ist (siehe bestehende drei Tests, Zeilen 14–71 der Datei).
+| 1 | Datenschutz-Code-Review bei jedem PR, der `clipboard.ts`/`schema.ts` berührt: kein Logging/`fetch`/Analytics/`localStorage`/`IndexedDB` mit Zwischenablageninhalt | req 5 Grenzfall 15 | teils durch 2.4 automatisiert, Review bleibt zusätzlich verlangt |
+| 2 | Cross-App: aus Salamanido kopieren, in **echtes** Word/LibreOffice Writer einfügen, Grundformatierung prüfen | req 2.3 Testfälle 1–3 | echte Desktop-Zielanwendung außerhalb Playwright |
+| 3 | **Echtes** Safari (macOS-Hardware) und **echtes** Firefox | req 5 Grenzfall 11, DoD (d) | Playwright-WebKit ≠ Apple Safari (s. 0.2) |
+| 4 | Kopieren bei aktiver IME-Komposition (ostasiatische Eingabemethoden) | req 5 Grenzfall 9 | IME systemnah nicht zuverlässig aus Playwright auslösbar |
+| 5 | Sehr großes Bild (mehrere MB): UI-Einfrieren mit Profiler beobachten | req 5 Grenzfall 7 | Grenzfall 7 liefert nur den harten Zeitbudget-Assert (< 5 s), ersetzt die Profiler-Beobachtung nicht |
 
 ---
 
-## 3. Manuelle / ergänzende Prüfungen (kein automatisierter Test möglich)
+## 5. Traceability-Matrix (Anforderung → tatsächlich vorhandener Test)
 
-| # | Prüfung | Bezug | Warum nicht automatisierbar |
-|---|---|---|---|
-| 1 | Datenschutz-Code-Review bei jedem PR, der `clipboard.ts` berührt: kein `console.log`/`fetch`/Analytics mit Zwischenablagen-Inhalt, kein `localStorage`/`IndexedDB` | `kopieren-req.md` Abschnitt 5, Grenzfall 15 | teilweise durch 1.2 automatisiert, aber Review bleibt zusätzlich verlangt (Wortlaut der Anforderung) |
-| 2 | Cross-App-Test: aus Salamanido kopieren, in **echtes** Microsoft Word/LibreOffice Writer einfügen, Grundformatierung prüfen | Abschnitt 2.3, Testfälle 1–3 | Ziel ist eine echte, unabhängige Desktop-Anwendung außerhalb der Playwright-Browserinstanz |
-| 3 | Echtes Safari (macOS-Hardware) und echtes Firefox (nicht nur Playwright-WebKit/Firefox-Emulation) | Abschnitt 5, Grenzfall 11 | Playwrights WebKit-Engine ist keine 1:1-Kopie von Apple Safari (siehe `kopieren-code.md` Abschnitt 9) |
-| 4 | Kopieren während aktiver IME-Komposition (ostasiatische Eingabemethoden) | Abschnitt 5, Grenzfall 9 | Playwright kann IME-Komposition nicht zuverlässig systemnah auslösen |
-| 5 | Sehr großes Bild (mehrere MB) in Selektion kopieren, UI-Einfrieren beobachten | Abschnitt 5, Grenzfall 7 | als Performance-Beobachtung sinnvoller manuell/mit Profiler statt als hartes Assert; ein grober automatisierter Zeitbudget-Test (`expect(duration).toBeLessThan(...)`) kann ergänzend in `clipboard.spec.ts` stehen, ersetzt die manuelle Beobachtung aber nicht vollständig |
-
----
-
-## 4. Bekannte Blocker vor Testausführung
-
-1. **Kein Code existiert noch.** Alle Tests in diesem Plan setzen voraus, dass
-   `kopieren-code.md` Abschnitt 3 (insbesondere 3.1–3.4, 3.7) umgesetzt ist. Vor Umsetzung
-   schlagen praktisch alle E2E-Testfälle fehl oder sind nicht sinnvoll aussagekräftig
-   (z. B. T-14/1.1 ohne `clipboardTextSerializer`, T-6/R-1 ohne `Shift-Enter` für
-   `hard_break`-Testfälle).
-2. **Cross-Format-Export-UI fehlt** (`kopieren-code.md` Abschnitt 0.4): R-3/R-4/R-5 bleiben
-   `test.fixme(...)`, bis `DocumentWorkspace.tsx` einen Export-Format-Wähler erhält — das ist
-   kein Kopieren-spezifischer Blocker, sondern ein Übergabepunkt an `FEATURE-SPEC-DOCX-ODT.md`
-   Abschnitt 1.3.
-3. **Kein Toolbar-Button für Kopieren** (Entscheidung 2.1 in `kopieren-code.md`, bereits
-   getroffen: „Nein“) — dieser Testplan enthält deshalb bewusst **keinen** Test, der einen
-   Kopieren-Button anklickt; alle Auslöser sind Tastenkombination/Kontextmenü/Touch-Menü.
-4. **Browsermatrix-Erweiterung** (`Desktop Safari (Clipboard)`, `Desktop Firefox (Clipboard)`)
-   muss in `playwright.config.ts` existieren, bevor die entsprechenden Projekt-Filter in
-   Testläufen (`--project="Desktop Safari (Clipboard)"`) greifen.
-
----
-
-## 5. Traceability-Matrix (Anforderung → Test)
-
-| `kopieren-req.md` | Testfall(e) hier |
+| `kopieren-req.md` | Abgedeckt durch |
 |---|---|
-| Abschnitt 1, Testfälle 1–5 | T-1, T-3, T-13 |
-| Abschnitt 2.1 (leere Selektion, Multi-MIME) | T-2, T-15 |
-| Abschnitt 2.2, Testfälle 1–4 | T-4, T-5, T-6; 1.3/1.4 (Reader/Writer) |
-| Abschnitt 2.3, Testfälle 1–3 | Abschnitt 3, Manuelle Prüfung 2 |
-| Abschnitt 3, Testfälle 1–4 | 2.3 (Selection-Sync), T-7/T-8, T-10, T-12 |
-| Abschnitt 4, Testfälle 1–6 | R-1, R-2, R-3 (fixme), R-4 (fixme), R-5 (fixme), R-6; 1.5 (Cross-Format Datenebene) |
-| Abschnitt 5, Grenzfälle 1–15 | T-2 (1), (Performance-Anmerkung) (2, 7), (5, Formatgrenze) T-5 (3), (4 dokumentiert, kein Test — Anforderung selbst verlangt nur „definiertes Verhalten dokumentieren“), T-8/T-7 (5), T-9 (6), (7 s. Abschnitt 3.5 dieses Plans), T-10 (8), Manuelle Prüfung 4 (9), — (10, s. u.), (11) Browsermatrix Abschnitt 0, T-11 (12), T-3 (13), — (14, zurückgestellt laut Anforderung selbst), 1.2/Manuelle Prüfung 1 (15) |
-| Abschnitt 6 (Menü-/Bedienelement-Übersicht) | T-1 (Zeile 1/2), T-3 (Zeile 2), Abschnitt 4 Punkt 3 dieses Plans (Zeile 3, „kein Button“), T-13 (Zeile 4), T-15 (Zeile 5), T-14 (Zeile 6) |
+| Abschnitt 1, Testfälle 1–5 (Strg/Cmd+C, Kontextmenü, Touch) | clipboard.spec Testfall 1, 3/4, Tablet-Viewport |
+| Abschnitt 1, Testfall 6 (Strg+Einfg) | **offen/zu dokumentieren** — kein Test; als „verifizieren oder als nicht unterstützt dokumentieren“ im Verifikationslauf klären (s. 7) |
+| Abschnitt 1, Testfall 7 (kein `navigator.clipboard`) | clipboard-privacy.test.ts |
+| Abschnitt 2.1 (leere Selektion, Multi-MIME) | Testfall 2/Grenzfall 1, T-15, Abschnitt 6/6 |
+| Abschnitt 2.2, Testfälle 1–4 | 2.2/2, 2.2/4, T-5; Reader/Writer 2.2 (4 Blöcke DOCX+ODT) |
+| Abschnitt 2.3, Testfälle 1–3 (Cross-App) | Manuelle Prüfung 2 |
+| Abschnitt 3, Testfälle 1–4 (Interferenzen) | selection-regression (Kopiervariante), Testfall 3/2 + Gegenprobe, Testfall 3/3, Fokus-Isolation/T-12 |
+| Abschnitt 4, Testfälle 1–3/6/7 (Rundreise) | R-1, R-2, R-6, R-7; 2.3 (Cross-Format-Datenebene) |
+| Abschnitt 4, Testfälle 4/5 (Cross-Format UI) | R-3/R-4/R-5 `test.fixme` (blockiert, s. 3.2/7) |
+| Abschnitt 5, Grenzfälle 1/3/5/6/7/12/13 | Testfall 2, T-5, Testfall 3/2+Gegenprobe, Grenzfall 6, Grenzfall 7, Grenzfall 12, Testfall 3/4 |
+| Abschnitt 5, Grenzfall 2 (Strg+A großes Dok) | teilweise über Grenzfall 7 (Zeitbudget); Performance-Beobachtung Manuell 5 |
+| Abschnitt 5, Grenzfälle 9/11 | Manuelle Prüfungen 4/3 |
+| Abschnitt 5, Grenzfall 10 (Permission verweigert/Iframe) | kein Pflichttest (Deployment ist Top-Level, kein Embed) — optionaler T-16, s. 7 |
+| Abschnitt 5, Grenzfall 14 (Kopf-/Fußzeile) | zurückgestellt (keine Editor-UI), s. 3.4 |
+| Abschnitt 5, Grenzfall 15 (Datenschutz) | clipboard-privacy.test.ts + Manuelle Prüfung 1 |
+| Abschnitt 6 (Bedienelement-Übersicht) | Testfall 1 (Z.1/2), Testfall 3/4 (Z.2), „kein Button“ (Entscheidung, kein Test), Tablet (Z.5), T-14/Abschnitt 6/6 (Z.6/8), T-15 (Multi-MIME) |
 
-Grenzfall 10 (Zwischenablage-Berechtigung vom Browser verweigert, z. B. Iframe-Kontext) ist
-im aktuellen Deployment-Kontext (GitHub Pages, Top-Level-Navigation, kein Iframe) laut
-`kopieren-req.md` selbst als zu klärende Randbedingung markiert, nicht als Pflichttestfall.
-Empfehlung: **ein** zusätzlicher E2E-Test, der die Seite in einem `<iframe>` ohne
-`allow="clipboard-write"` einbettet und prüft, dass ein `ControlOrMeta+c`-Versuch keine
-unbehandelte Konsolen-Exception erzeugt — als T-16 nachzutragen, sobald geklärt ist, ob
-dieses Szenario für die Produktion überhaupt relevant ist (aktuell kein Embed-Anwendungsfall
-bekannt).
+**Bewusst kein Test (Entscheidung, dokumentiert):** kein Kopier-Toolbar-Button →
+kein Button-Klick-Test (`kopieren-req.md` Abschnitt 8, Punkt 1).
 
 ---
 
-## 6. Abnahmekriterien für diesen Testplan
+## 6. Bekannte Blocker & offene Restaufgaben (korrigiert)
 
-Der Testplan gilt als vollständig abgearbeitet, wenn:
+1. ~~„Kein Code existiert noch.“~~ **Gestrichen — war falsch.** Code und Tests existieren
+   vollständig (Abschnitt 0). Der Verifikationslauf setzt keinen noch zu schreibenden
+   Produktionscode voraus; er belegt Grün-Stand und schließt die kleinen Test-/Doku-Lücken
+   (2.1.1, 2.1.2, 2.4).
+2. **Cross-Format-Export-UI fehlt** (`kopieren-code.md` Abschnitt 0.4): R-3/R-4/R-5 bleiben
+   `test.fixme`, bis `DocumentWorkspace.tsx` einen Export-Format-Wähler erhält — Übergabe an
+   `FEATURE-SPEC-DOCX-ODT.md` Abschnitt 1.3, **kein** Kopieren-Blocker.
+3. **WebKit-Abdeckungsrealität** (0.2): `Desktop Safari (Clipboard)` fährt nur die
+   paste-freie Teilmenge; im Bericht **nicht** als „Safari automatisiert grün“ ausgeben.
+   Real-Hardware-Safari/-Firefox bleibt manueller Abnahmepunkt (Manuelle Prüfung 3).
+4. **Strg+Einfg (Ctrl+Insert)** (req 1, Testfall 6): noch kein Test — im Verifikationslauf
+   entweder als funktionierender Zweitweg nachweisen **oder** als „nicht unterstützt“
+   dokumentieren; keine kommentarlose Lücke.
+5. **Verweis-Drift** (`kopieren-code.md` Finding 5.5): Code-Kommentare zeigen auf
+   `kopieren-req.md Abschnitt 1, Zeile 71` — das `navigator.clipboard`-Nicht-Soll steht in
+   der aktuellen req in der Tabelle **Abschnitt 1, Zeile 8** (um Z. 100). Kommentare auf den
+   **stabilen Anker** („Abschnitt 1, Tabellenzeile 8 ‚Programmatischer Zugriff …
+   navigator.clipboard‘“) umstellen. Reine Doku, kein Verhalten.
 
-1. Alle Tests aus Abschnitt 1 (1.1–1.5) existieren und grün sind (`npm test`).
-2. Alle Tests aus Abschnitt 2 (2.1–2.3) existieren und auf `Desktop Chrome`, `Desktop Safari
-   (Clipboard)`, `Desktop Firefox (Clipboard)` sowie (für die touch-spezifischen Fälle)
-   `Tablet` grün sind (`npm run test:e2e`), mit Ausnahme der unter Abschnitt 4, Punkt 2
+---
+
+## 7. Verifikations-Runbook (so wird „grün“ belegt, nicht behauptet)
+
+Reihenfolge (DoD verlangt **nachweislich** grün, nicht nur vorhanden):
+
+1. **Unit/Modell:** `npm test` — muss `clipboard.test.ts` (inkl. der Ergänzungen 2.1.1/2.1.2),
+   `clipboard-privacy.test.ts`, `cross-format-clipboard-content.test.ts`,
+   `docx|odt/__tests__/roundtrip.test.ts` (copy/paste-Blöcke + `hard_break` + Tab) grün zeigen.
+2. **E2E Chromium:** `npm run test:e2e -- --project="Desktop Chrome"` — voller Rundlauf inkl.
+   Technik B (T-15 `clipboard.read()`, Abschnitt 6/6 `readText()`).
+3. **E2E Firefox:** `--project="Desktop Firefox (Clipboard)"` — der **einzige** automatisierte
+   Nicht-Chromium-Paste-Rundlauf; muss grün sein (0.2/Finding 5.2).
+4. **E2E WebKit/Safari:** `--project="Desktop Safari (Clipboard)"` — erwartet grün, aber
+   **bewusst nur** die paste-freie Teilmenge; im Bericht als solche kennzeichnen.
+5. **E2E Mobile/Tablet:** Touch-Rundlauf (Mobile/Chromium vollständig; Tablet/WebKit im
+   Rahmen der dokumentierten Grenze).
+6. **Rundreise:** `clipboard-roundtrip.spec.ts` R-1/R-2/R-6/R-7 grün; R-3/R-4/R-5 + Tab als
+   `test.fixme` (blockiert, **nicht** „bestanden“).
+7. **Manuell:** reale Safari-/Firefox-Hardware (Grenzfall 11), Cross-App-Einfügen,
+   IME-Komposition, Datenschutz-Review; Strg+Einfg klären (Punkt 6.4).
+
+---
+
+## 8. Abnahmekriterien für diesen Testplan
+
+Der Testplan gilt als abgearbeitet, wenn:
+
+1. Alle Unit-Tests (Abschnitt 2, inkl. der ergänzten Fälle 2.1.1) existieren und grün sind
+   (`npm test`).
+2. Alle E2E-Tests (Abschnitt 3) auf `Desktop Chrome` und `Desktop Firefox (Clipboard)` grün
+   sind, `Desktop Safari (Clipboard)` grün **im Umfang seiner paste-freien Teilmenge**
+   (ehrlich so berichtet), `Tablet`/`Mobile` für die Touch-Fälle — ausgenommen die
    dokumentierten `test.fixme`-Fälle.
-3. Die Traceability-Matrix (Abschnitt 5) keine Lücke ohne Begründung zeigt.
-4. Die manuellen Prüfungen aus Abschnitt 3 durchgeführt und ihr Ergebnis dokumentiert
-   (nicht nur „ausstehend“) sind.
-5. Rückmeldung an `kopieren-req.md` Abschnitt 8 (offene Fragen) erfolgt ist — dieser
-   Testplan trifft dazu keine neuen Produktentscheidungen, sondern verweist auf die in
-   `kopieren-code.md` Abschnitt 2 bereits getroffenen.
+3. Jeder E2E-Test die Determinismus-Regeln aus Abschnitt 1 einhält (`settle` nach jeder
+   nativen Caret-/Selektionsbewegung; 600 ms vor isoliertem Undo; `{delay}` bei
+   zeichengenauer Selektion; Bild-Einfügung via `toHaveCount` abgewartet) — im Review als
+   Blockierkriterium.
+4. Die Traceability-Matrix (Abschnitt 5) keine Lücke ohne Begründung zeigt; die offenen
+   Punkte (Strg+Einfg, Grenzfall 10/Iframe) im Bericht als geklärt/bewusst-offen geführt sind.
+5. Die manuellen Prüfungen (Abschnitt 4) durchgeführt und ihr Ergebnis dokumentiert sind
+   (nicht „ausstehend“).
+6. Die Handoffs (Abschnitt 6: Cross-Format-Export-UI; Real-Hardware; Verweis-Drift) an die
+   jeweils zuständige Stelle gemeldet sind, ohne sie in diesem Ticket zu „bestehen“.
 
-Erst danach darf der Backlog-Status von `kopieren` auf „verifiziert“ wechseln
-(`kopieren-req.md` Abschnitt 8, Punkt 4).
+Erst danach darf der Backlog-Status von `kopieren` von „nicht vertrauenswürdig“ auf
+„verifiziert“ wechseln (`kopieren-req.md` Abschnitt 8).

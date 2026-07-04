@@ -43,6 +43,12 @@ const nodes: Record<string, NodeSpec> = {
     group: 'inline',
     inline: true,
     selectable: false,
+    // Without this, every ProseMirror plain-text extraction (`Node.textContent`,
+    // `textBetween`, and therefore the plain-text clipboard representation) treats
+    // a leaf inline node without its own `leafText` as an empty string — two lines
+    // separated by a hard break would silently merge into one word instead of
+    // keeping a line break. See specs/kopieren-code.md Abschnitt 0.2, Befund A.
+    leafText: () => '\n',
     parseDOM: [{ tag: 'br' }],
     toDOM() {
       return ['br']
