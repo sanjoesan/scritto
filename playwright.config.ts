@@ -7,12 +7,12 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: [['html', { open: 'never' }]],
   use: {
-    baseURL: 'http://localhost:4173/scritto/',
+    baseURL: 'http://localhost:4173/salamanido/',
     trace: 'on-first-retry',
   },
   webServer: {
     command: 'npm run build && npm run preview -- --port 4173',
-    url: 'http://localhost:4173/scritto/',
+    url: 'http://localhost:4173/salamanido/',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },

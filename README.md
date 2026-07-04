@@ -1,13 +1,13 @@
-# Scritto
+# Salamanido
 
-Scritto ist eine Web-App zum Ansehen und Bearbeiten gängiger Dokumentformate — komplett im
+Salamanido ist eine Web-App zum Ansehen und Bearbeiten gängiger Dokumentformate — komplett im
 Browser, ohne Server, ohne Konto.
 
-**Live:** https://sanjoesan.github.io/scritto/
+**Live:** https://sanjoesan.github.io/salamanido/
 
 ## Datenschutz — bitte lesen
 
-Scritto lädt Dateien ausschließlich in den Arbeitsspeicher deines Browser-Tabs. Es gibt keinen
+Salamanido lädt Dateien ausschließlich in den Arbeitsspeicher deines Browser-Tabs. Es gibt keinen
 Server, keine Übertragung von Dateiinhalten irgendwohin, kein `localStorage`, kein
 `IndexedDB`, keine Cookies mit Dokumentdaten.
 

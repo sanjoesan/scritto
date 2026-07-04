@@ -34,7 +34,7 @@ export function FormatPicker({ modules, planned, onOpen }: FormatPickerProps) {
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10">
-      <h1 className="text-3xl font-semibold text-neutral-900 dark:text-neutral-100">Scritto</h1>
+      <h1 className="text-3xl font-semibold text-neutral-900 dark:text-neutral-100">Salamanido</h1>
       <p className="mt-2 text-neutral-600 dark:text-neutral-400">
         Dokumente hochladen, bearbeiten und wieder exportieren — komplett im Browser, ohne Server.
       </p>
