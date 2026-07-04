@@ -23,6 +23,15 @@ test.describe('Selection-sync regression (stale AllSelection after toolbar actio
     // ProseMirror's model selection stuck on the stale "select all" range.
     await editor.click()
     await page.keyboard.press('End')
+    // ProseMirror only learns a native, keyboard-driven caret move (like the
+    // "End" above) via the browser's asynchronous `selectionchange` event.
+    // Firing "Enter" immediately after — as any Playwright `press()` sequence
+    // does, with no human reaction-time gap — can race ahead of that catch-up
+    // and still act on the pre-"End" position. A real user's natural typing
+    // cadence never triggers this; a short wait here just gives the
+    // already-in-flight sync a chance to land first, same as it always would
+    // outside of instant, automated keystrokes.
+    await page.waitForTimeout(50)
     await page.keyboard.press('Enter')
     await page.keyboard.type('Zweiter Absatz.')
 
@@ -59,6 +68,8 @@ test.describe('Selection-sync regression (stale AllSelection after toolbar actio
       await page.getByTitle('Fett').click()
       await editor.click()
       await page.keyboard.press('End')
+      // See the identical comment in the first test above.
+      await page.waitForTimeout(50)
       await page.keyboard.press('Enter')
     }
     await page.keyboard.type('Letzter Absatz.')
