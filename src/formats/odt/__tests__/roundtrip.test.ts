@@ -209,10 +209,24 @@ describe('ODT round trip: unsupported_block', () => {
   })
 })
 
-describe('ODT round trip: negative case (external image URL)', () => {
-  it('throws a readable error instead of silently dropping an image with a non-data: src', async () => {
-    const original = doc([{ type: 'image', attrs: { src: 'https://example.com/bild.png', alt: '' } }])
-    await expect(writeOdt(original)).rejects.toThrow(/data-URL/)
+describe('ODT round trip: external image URL is hardened (einfuegen 0.7/3.12, ex Live-Bug)', () => {
+  // See the DOCX counterpart: a non-data: image src must no longer abort export;
+  // it becomes visible placeholder text so the surrounding content survives.
+  it('exports a non-data: image as placeholder text without throwing', async () => {
+    const original = doc([{ type: 'image', attrs: { src: 'https://example.com/bild.png', alt: 'Foto' } }])
+    const blob = await writeOdt(original) // must NOT reject
+    expect(blob).toBeTruthy()
+    const reimported = await readOdt(blob)
+    const text = JSON.stringify(reimported.body)
+    expect(text).toContain('[Bild: Foto]')
+    expect(text).not.toContain('https://example.com/bild.png')
+  })
+
+  it('falls back with a generic placeholder when there is no alt text', async () => {
+    const original = doc([{ type: 'image', attrs: { src: 'https://example.com/x.png', alt: '' } }])
+    const blob = await writeOdt(original)
+    const reimported = await readOdt(blob)
+    expect(JSON.stringify(reimported.body)).toContain('[Bild nicht eingebettet]')
   })
 })
 

@@ -129,6 +129,36 @@ describe('ODT writer: external schema validation (speichern-exportieren-qa.md U1
     ).toBe(true)
   }, 30_000)
 
+  // einfuegen-req.md 5.2 Punkt 12 / 3.12: a document that (via paste/drop) acquired
+  // a non-embeddable external image must still produce a content.xml that validates
+  // against the OFFICIAL ODF schema — the placeholder must be there, the external
+  // URL must not, and the writer must not throw.
+  it('produces a schema-valid content.xml with placeholder text for a non-embeddable external image (einfuegen 5.2/3.12)', async () => {
+    const content: WordDocumentContent = {
+      body: {
+        type: 'doc',
+        content: [
+          paragraph('vor dem Bild'),
+          { type: 'image', attrs: { src: 'https://example.invalid/x.png', alt: 'Foto' } },
+          paragraph('nach dem Bild'),
+        ],
+      },
+      header: null,
+      footer: null,
+      meta: { title: '' },
+    }
+    const blob = await writeOdt(content)
+    const zip = await JSZip.loadAsync(Buffer.from(await blob.arrayBuffer()))
+    const contentXml = await zip.file('content.xml')!.async('text')
+    const result = await validate(contentXml, 'content.xml')
+    expect(
+      result.valid,
+      `content.xml failed OASIS ODF 1.3 schema validation:\n${result.errors.map((e) => e.rawMessage).join('\n')}`,
+    ).toBe(true)
+    expect(contentXml).toContain('[Bild: Foto]')
+    expect(contentXml).not.toContain('example.invalid')
+  }, 30_000)
+
   it('rejects a structurally invalid document, proving the validator actually checks structure (negative control)', async () => {
     // Sanity check for the validator/schema setup itself, so a passing result above is
     // not merely a schema/harness that accepts anything: a `table:table-cell` with a

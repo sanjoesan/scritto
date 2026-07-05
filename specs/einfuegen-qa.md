@@ -1,7 +1,7 @@
 # Testplan „Einfügen" (QA)
 
-Bezug: `E:\docs\specs\einfuegen-req.md` (Anforderung, Stand geprüft 2026-07-04),
-`E:\docs\specs\einfuegen-code.md` (Umsetzungsplan, Stand geprüft 2026-07-04).
+Bezug: `E:\docs\specs\einfuegen-req.md` (Anforderung, Stand geprüft 2026-07-05),
+`E:\docs\specs\einfuegen-code.md` (Umsetzungsplan, Stand geprüft 2026-07-05).
 Geltungsbereich: identisch zur Anforderungsdatei — die Einfügen-Funktion im
 gemeinsamen DOCX/ODT-Editor (`src/formats/shared/editor/`), inklusive der laut
 Umsetzungsplan neuen Dateien `src/formats/shared/editor/paste.ts` und
@@ -17,6 +17,56 @@ Abschnitt 10 (Reihenfolge der Umsetzung) läuft. Tests gegen bereits
 existierenden Code (Baseline-Rundreise, Selection-Sync-Regressionstest,
 Export-Absturz-Bug Abschnitt 1) sind schon heute ausführbar und müssen vor
 jeder Änderung als Referenzlauf grün sein.
+
+> **Revision (kritische Korrekturen gegen den echten Code, verifiziert 2026-07-05).**
+> Eine erste Fassung dieses Testplans enthielt vier Fehler, die gegen den tatsächlichen
+> Zustand des Repos geprüft und hier behoben wurden — analog zur „Rev. 2"-Warnung in
+> `einfuegen-code.md`:
+> 1. **E2E-Dateiname korrigiert** von `paste.spec.ts` auf **`clipboard-paste.spec.ts`**.
+>    `playwright.config.ts:43-53` bindet die beiden Cross-Browser-Projekte
+>    „Desktop Safari (Clipboard)" und „Desktop Firefox (Clipboard)" ausschließlich über
+>    `testMatch: /clipboard.*\.spec\.ts/`. Ein Spec **ohne** `clipboard` im Namen liefe
+>    **nur** unter Chromium/Mobile/Tablet — die von `einfuegen-req.md` Grenzfall 18
+>    geforderte WebKit-/Firefox-Abdeckung wäre still nicht ausgeführt (deckt sich mit
+>    `einfuegen-code.md` Abschnitt 8.2).
+> 2. **Projektliste korrigiert:** `playwright.config.ts` hat **fünf** Projekte, nicht drei
+>    (siehe Abschnitt 1). Die frühere „nur drei Projekte"-Angabe war falsch.
+> 3. **Determinismus-Lücke geschlossen:** Der Selection-Sync-×-Paste-Test (Abschnitt 3.9)
+>    hatte die im Repo bereits gelernte Race-Condition (nativer Caret-Move → sofort `Enter`
+>    ohne `selectionchange`-Abwartezeit) reproduziert. Jetzt mit `waitForTimeout(50)` nach
+>    jedem nativen Caret-Move, exakt wie `selection-regression.spec.ts:27-34`.
+> 4. **Bestehende „throws"-Tests adressiert:** `roundtrip.test.ts:222-227` (DOCX) und
+>    `odt/__tests__/roundtrip.test.ts:212-215` (ODT) verlangen **heute** ausdrücklich
+>    `rejects.toThrow(/data-URL/)`. Die Export-Härtung (`einfuegen-code.md` Abschnitt 6)
+>    kehrt dieses Verhalten um; die Alt-Tests müssen dabei **migriert** werden, nicht nur
+>    neue danebengestellt (Abschnitt 2.2).
+
+> **Revision 2 (kritische Nachprüfung gegen den echten Code, 2026-07-05).** Ein zweiter,
+> gezielter Abgleich mit dem Repo hat weitere Punkte korrigiert bzw. ergänzt:
+> 1. **E-40 Tab-Assertion war für DOCX falsch.** Gegen `docx/writer.ts` (`encodeRunText`,
+>    Zeilen 35–38) und `odt/writer.ts` (`encodeWhitespace`, Zeile 63) verifiziert: **nur**
+>    der ODT-Writer erzeugt `<text:tab/>`; der DOCX-Writer hält das **literale** Tab-Zeichen
+>    im `<w:t>`-Run (ein einzelner Tab in Wortmitte triggert nicht einmal
+>    `xml:space="preserve"`) — **kein** `<w:tab/>`. E-40 entsprechend format-spezifisch
+>    korrigiert. Zusätzlich klargestellt: über `pasteInto` (synthetisches `text/plain`) ist
+>    der Fall implementierbar und **nicht** `test.fixme`, anders als der reine Tastatur-Weg
+>    (`clipboard-roundtrip.spec.ts:247`, „Tab wechselt den Fokus").
+> 2. **Drei Grenzfälle aus `einfuegen-req.md` Abschnitt 4 fehlten** (die Anforderung listet
+>    **22**, nicht 19 — der Umsetzungsplan `einfuegen-code.md` Abschnitt 9 mappt nur bis 19).
+>    Ergänzt: **E-52** (#20 eingefügter Hyperlink → Linktext erhalten, Verlinkung entfällt,
+>    kein `javascript:`-Ziel überlebt), **E-53** (#21 Mark-Übernahme bei Standard-Strg+V als
+>    verbindliches **Gegenstück** zu E-25 — req.md 3.3 verlangt beide Richtungen getrennt),
+>    **E-54** (#22 `text/uri-list`-Drop aus anderem Fenster ohne `File`). Rückverfolgbarkeits-
+>    Matrix auf „1–22" aktualisiert.
+> 3. **`pasteInto`-Helper deterministischer gemacht.** Dispatch jetzt fest auf `.ProseMirror`
+>    (= `view.dom`, wo prosemirror-view seinen Paste-Handler registriert) statt auf
+>    `document.activeElement` — Letzteres wäre nach einem vorangegangenen Toolbar-`.click()`
+>    der Button und ließe das Paste-Event ProseMirror **verfehlen** (nicht-deterministischer
+>    Fehlschlag).
+> 4. **Determinismus-Regel für asynchrone Bild-Pfade geschärft** (Abschnitt 3.9): vor Undo/
+>    Export/Folgetaste auf das **beobachtbare Ergebnis** warten (Web-First-Assertion), nicht
+>    auf ein festes `waitForTimeout` — `insertImageFile` läuft über `FileReader`, dessen
+>    Laufzeit 50 ms auf CI nicht garantiert.
 
 Grundsatz aus `einfuegen-req.md` Abschnitt 6, Punkt 5, hier verbindlich
 umgesetzt: **Unit-Tests mit direkt konstruierten `ProseMirrorJSON`-Fixtures
@@ -36,16 +86,37 @@ Writer-Funktion direkt aufruft.
 | Unit | Vitest (`environment: 'jsdom'`, `vite.config.ts:11`) | Reine Funktionen (`paste.ts`-Hilfsfunktionen, `imageFallback.ts`) und Reader/Writer-Rundreise auf `ProseMirrorJSON`-Ebene, ohne Browser/UI | Abschnitt 2 |
 | E2E — deterministisch | Playwright, `ClipboardEvent`/`DragEvent` mit synthetischem `DataTransfer`, dispatcht per `page.evaluate` auf das echte, im Browser laufende `.ProseMirror`-Element | Reproduzierbarer Haupttestkorpus: Klicks, Tippen, Datei-Upload, Datei-Export inkl. Prüfung der heruntergeladenen Datei | Abschnitt 3 |
 | E2E — echte OS-Zwischenablage | Playwright, `context.grantPermissions(['clipboard-read','clipboard-write'])` + `navigator.clipboard` + echtes `page.keyboard.press('ControlOrMeta+V')` | Ergänzender Realismus-Test, mind. für Projekt „Desktop Chrome" verpflichtend (`einfuegen-req.md` Abschnitt 6.2) | Abschnitt 3.7 |
-| Manuell/exploratory | Echte, lokal installierte Word-/LibreOffice-Writer-Instanz | Grenzfall 14 (höchste inhaltliche Priorität It. Anforderung), IME-Komposition (Grenzfall 8) | Abschnitt 5 |
+| Manuell/exploratory | Echte, lokal installierte Word-/LibreOffice-Writer-Instanz | Grenzfall 16 (höchste inhaltliche Priorität lt. Anforderung), IME-Komposition (Grenzfall 8) | Abschnitt 3.10 |
 
-Alle drei Playwright-Projekte aus `playwright.config.ts:19-23` (`Desktop
-Chrome`, `Mobile` = `Pixel 7`/Chromium, `Tablet` = `iPad Mini`/WebKit) laufen
-über den deterministischen `ClipboardEvent`/`DragEvent`-Weg mit; die
-Clipboard-Permission-API-Tests (Abschnitt 3.7 unten) sind laut
-`einfuegen-req.md` Abschnitt 6.2 nur für „Desktop Chrome" verpflichtend, für
-„Mobile"/„Tablet" nice-to-have (WebKit/Firefox-Clipboard-Permissions gelten
-als weniger zuverlässig) — entsprechend mit `test.skip(({ browserName }) =>
-browserName !== 'chromium')` bzw. äquivalenter Projekt-Bedingung abgesichert.
+`playwright.config.ts:27-54` definiert **fünf** Projekte (verifiziert):
+
+| Projekt | Device / Engine | `permissions` | `testMatch` |
+|---|---|---|---|
+| `Desktop Chrome` | Desktop Chrome / Chromium | `clipboard-read`, `clipboard-write` | alle Specs |
+| `Mobile` | Pixel 7 / Chromium | `clipboard-read`, `clipboard-write` | alle Specs |
+| `Tablet` | iPad Mini / WebKit | **keine** (WebKit unterstützt sie nicht) | alle Specs |
+| `Desktop Safari (Clipboard)` | Desktop Safari / WebKit | keine | **nur** `/clipboard.*\.spec\.ts/` |
+| `Desktop Firefox (Clipboard)` | Desktop Firefox / Firefox | keine | **nur** `/clipboard.*\.spec\.ts/` |
+
+Konsequenzen, die den Dateinamen und die Skip-Bedingungen **erzwingen**:
+
+- Damit die Paste-Tests auch unter Safari/Firefox laufen (Grenzfall 18,
+  Browser-Matrix), **muss** die Spec-Datei `clipboard` im Namen tragen →
+  **`tests/e2e/clipboard-paste.spec.ts`** (nicht `paste.spec.ts`). Andernfalls
+  greifen nur Chromium/Mobile/Tablet und die WebKit-/Firefox-Abdeckung fällt
+  still aus.
+- Der deterministische `ClipboardEvent`/`DragEvent`-Weg (Abschnitt 3) läuft in
+  **allen fünf** Projekten, weil er keine Clipboard-Permission braucht.
+- Die Clipboard-**Permission**-API-Tests (Abschnitt 3.4, E-25…E-27) sind laut
+  `einfuegen-req.md` Abschnitt 6.2 nur für `Desktop Chrome` verpflichtend. Sie
+  **müssen** auf WebKit/Firefox übersprungen werden — nicht nur weil die API
+  dort unzuverlässig ist, sondern weil `context.grantPermissions([...])` auf
+  diesen Engines aktiv **einen Fehler wirft** (dokumentiert in
+  `playwright.config.ts:28-33`, deshalb granten Tablet/Safari/Firefox keine
+  Clipboard-Permission). Absicherung mit
+  `test.skip(({ browserName }) => browserName !== 'chromium', 'clipboard-permission API nur unter Chromium zuverlässig/erlaubt')`
+  — dieselbe Klasse dokumentierter Grenze wie das bestehende
+  `SKIP_WEBKIT_ROUNDTRIP` in `clipboard-roundtrip.spec.ts`.
 
 ---
 
@@ -107,8 +178,29 @@ Playwright abgedeckt, nicht hier):
 
 ### 2.2 Erweiterung `src/formats/docx/__tests__/roundtrip.test.ts` und `src/formats/odt/__tests__/roundtrip.test.ts`
 
-Bestehendes Muster wiederverwenden (`doc()`/`paragraph()`-Helper, siehe
-`roundtrip.test.ts:8-24`). Neue `describe`-Blöcke, **je Format**:
+**Achtung — bestehende Gegen-Tests müssen migriert, nicht ergänzt werden.**
+Heute existieren bereits zwei Tests, die das **aktuelle** (Vor-Härtungs-)
+Verhalten festschreiben und das genaue Gegenteil des Soll-Zustands verlangen:
+
+- `src/formats/docx/__tests__/roundtrip.test.ts:222-227` — `describe('DOCX round
+  trip: negative case (external image URL)')`, erwartet
+  `await expect(writeDocx(original)).rejects.toThrow(/data-URL/)`.
+- `src/formats/odt/__tests__/roundtrip.test.ts:212-215` — ODT-Pendant,
+  `writeOdt(...).rejects.toThrow(/data-URL/)`.
+
+Diese Tests belegen **heute** den Live-Bug als „gewolltes Fail-Fast". Sobald die
+Export-Härtung aus `einfuegen-code.md` **Abschnitt 6** greift, wirft der Writer
+**nicht mehr** — die beiden Alt-Tests werden dann **rot**. Sie sind daher beim
+Härten **umzuschreiben** (nicht zu löschen, nicht danebenzustellen): der Titel
+„negative case" wandert von „throws" auf „ersetzt durch Platzhaltertext, wirft
+nicht". Wird das versäumt, koexistieren zwei widersprüchliche Tests
+(einer verlangt Wurf, einer verlangt keinen Wurf) und die Suite kann nie
+gleichzeitig grün sein. Der `ImageCollector.add`-Fail-Fast selbst bleibt als
+tieferliegende Invariante erhalten (siehe Testfall unten, zweiter `it`).
+
+Bestehendes Muster wiederverwenden (`doc()`/`paragraph()`/`roundTrip()`-Helper,
+siehe `roundtrip.test.ts:11-30`, `TINY_PNG` in `roundtrip.test.ts:11-12`). Neue
+bzw. **migrierte** `describe`-Blöcke, **je Format**:
 
 ```ts
 describe('DOCX round trip: non-embeddable image fallback (Abschnitt 1 Bugfix)', () => {
@@ -118,7 +210,7 @@ describe('DOCX round trip: non-embeddable image fallback (Abschnitt 1 Bugfix)', 
       { type: 'image', attrs: { src: 'https://example.invalid/chart.png', alt: 'Diagramm' } },
       paragraph('Nachher'),
     ])
-    const result = await roundTrip(original) // muss NICHT werfen — Regressionstest für einfuegen-code.md Abschnitt 1
+    const result = await roundTrip(original) // muss NICHT werfen — Regressionstest für einfuegen-code.md Abschnitt 6 (Export-Härtung)
     const texts = (result.body as any).content.map((n: any) => JSON.stringify(n))
     expect(texts.join('')).toContain('Diagramm')
     expect(texts.join('')).not.toContain('image') // kein image-Knoten mehr, Platzhaltertext stattdessen
@@ -132,17 +224,19 @@ describe('DOCX round trip: non-embeddable image fallback (Abschnitt 1 Bugfix)', 
 })
 ```
 
-Analog für ODT (`blockToOdt`, `case 'image'`). **Vor** der Härtung aus
-`einfuegen-code.md` Abschnitt 7 muss dieser erste Testfall **rot** sein (wirft
-aktuell `"Bilder müssen als data-URL vorliegen..."` bis in `writeDocx`/
-`writeOdt` durch) — das ist der belegte Bug aus `einfuegen-code.md`
-Abschnitt 1 und der erste Test, der grün werden muss, bevor irgendeine
-Paste-Logik überhaupt angefasst wird (Umsetzungsreihenfolge Abschnitt 10,
-Punkt 1).
+Analog für ODT (`blockToOdt`, `case 'image'`). Der erste `it` oben ist die
+migrierte Fassung des heutigen `negative case`-Tests (222-227 / 212-215): er
+verlangt jetzt **keinen** Wurf mehr, sondern Platzhaltertext. Der zweite `it`
+sichert den `ImageCollector.add`-Fail-Fast als tieferliegende Invariante ab.
+Das ist der belegte Bug aus `einfuegen-code.md` Abschnitt 0.4/1 und der erste
+Test, der (nach Migration) grün werden muss, bevor irgendeine Paste-Logik
+angefasst wird (Umsetzungsreihenfolge `einfuegen-code.md` Abschnitt 11,
+Punkt 2 — „Bugfix + Härtung zuerst").
 
 Zusätzlich, sobald Paste implementiert ist, Erweiterung des bestehenden
-„whole-document fidelity"-Tests (`roundtrip.test.ts:310-358`) um eine
-Variante, die zusätzlich einen per Paste erzeugten Absatz mit `hard_break`
+„whole-document fidelity"-Tests (`roundtrip.test.ts:366-414`, ODT-Pendant
+`odt/__tests__/roundtrip.test.ts:430`) um eine Variante, die zusätzlich einen
+per Paste erzeugten Absatz mit `hard_break`
 und einen eingebetteten Data-URI-Bild-Knoten aus einer simulierten
 Einfügung enthält — reiner Rundreise-Test auf JSON-Ebene, **ersetzt nicht**
 die E2E-Rundreise aus Abschnitt 3.4 unten (Anforderung Abschnitt 6, Punkt 5:
@@ -163,7 +257,9 @@ Tastenkombination), 3.9 (sichtbares Banner im DOM), Grenzfall 1–3, 9, 10, 11,
 
 ## 3. E2E-Tests (Playwright) — echte Browser-Bedienung
 
-Neue Datei `tests/e2e/paste.spec.ts`, Aufbau/Locator-Konventionen identisch zu
+Neue Datei **`tests/e2e/clipboard-paste.spec.ts`** (der `clipboard`-Präfix ist
+zwingend, siehe Abschnitt 1 — sonst keine Safari-/Firefox-Abdeckung),
+Aufbau/Locator-Konventionen identisch zu
 den bestehenden Suiten (`docx.spec.ts`, `odt.spec.ts`,
 `selection-regression.spec.ts`): `page.goto('/')` → Privacy-Banner wegklicken
 (`page.getByRole('button', { name: /verstanden/i }).click()`) →
@@ -179,7 +275,7 @@ für Exporte) — **keiner** ruft eine interne TS-Funktion (`sanitizePastedHtml`
 etc.) direkt aus dem Testprozess auf. Das ist die zentrale Abgrenzung zu
 Abschnitt 2.
 
-### 3.1 Test-Infrastruktur (Helper-Funktionen in `paste.spec.ts`)
+### 3.1 Test-Infrastruktur (Helper-Funktionen in `clipboard-paste.spec.ts`)
 
 ```ts
 import { test, expect, type Page } from '@playwright/test'
@@ -192,15 +288,25 @@ function odtCard(page: Page) {
   return page.locator('div.rounded-lg', { has: page.getByRole('heading', { name: 'OpenDocument Text (.odt)' }) })
 }
 
-/** Dispatches a real ClipboardEvent('paste') on the focused .ProseMirror element,
- *  exactly the path einfuegen-req.md Abschnitt 6.1 prescribes as the primary technique. */
+/** Dispatches a real ClipboardEvent('paste') on the .ProseMirror element,
+ *  exactly the path einfuegen-req.md Abschnitt 6.1 prescribes as the primary technique.
+ *  WICHTIG (Determinismus): das Event wird bewusst auf `.ProseMirror` (= `view.dom`)
+ *  dispatcht, NICHT auf `document.activeElement`. prosemirror-view registriert seinen
+ *  Paste-Handler auf `view.dom`; nach einem vorangegangenen Toolbar-`.click()` wäre
+ *  `activeElement` der Button (außerhalb des Editors), das synthetische Paste-Event
+ *  erreichte ProseMirror dann nicht und der Test würde nicht-deterministisch scheitern.
+ *  Die Selektion bleibt am Editor erhalten, daher fügt ProseMirror korrekt an der
+ *  Cursorposition ein, auch wenn der DOM-Fokus woanders liegt. (Der Fokus-außerhalb-
+ *  Grenzfall E-42 dispatcht deshalb absichtlich inline auf ein Nicht-Editor-Element,
+ *  statt diesen Helper zu verwenden.) */
 async function pasteInto(page: Page, opts: { html?: string; text?: string }) {
   await page.evaluate(({ html, text }) => {
     const dt = new DataTransfer()
     if (html) dt.setData('text/html', html)
     if (text) dt.setData('text/plain', text)
-    const el = document.activeElement ?? document.querySelector('.ProseMirror')!
-    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
+    document.querySelector('.ProseMirror')!.dispatchEvent(
+      new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }),
+    )
   }, opts)
 }
 
@@ -258,7 +364,7 @@ async function exportAndUnzip(page: Page, format: 'docx' | 'odt') {
 ```
 
 `TINY_PNG_BASE64` als lokale Konstante analog zu `TINY_PNG` in
-`roundtrip.test.ts:5-6` (Base64-Payload ohne `data:`-Präfix, für die
+`roundtrip.test.ts:11-12` (Base64-Payload ohne `data:`-Präfix, für die
 Blob-Konstruktion oben).
 
 ### 3.2 Testfälle — Grundverhalten (Anforderung Abschnitt 3.1–3.3)
@@ -315,13 +421,17 @@ gelten je einmal pro Karte, `test.describe.each` oder zwei parallele
 | E-37 | #3 Leeres Dokument | frisch erstelltes Dokument (nur leerer `<p>`), sofort `pasteInto` ohne vorheriges Tippen — kein doppelter Leerabsatz danach |
 | E-38 | #4 Große Textmenge | `pasteInto(page, { text: <mehrere tausend Zeichen erzeugter Lorem-Text> })`, danach Interaktions-Check: `editor.click()`, `page.keyboard.type('x')` reagiert **innerhalb** eines kurzen Timeouts (UI nicht eingefroren), `Strg+Z` macht die gesamte Einfügung in einem Schritt rückgängig |
 | E-39 | #5 Emoji/Surrogatpaare | `pasteInto(page, { text: '👨‍👩‍👧‍👦 Familie 𝕏' })`, DOM-Text exakt gleich der Eingabe (`toContainText`, byte-genauer String-Vergleich, nicht nur „enthält etwas") |
-| E-40 | #6 Tab-Zeichen | `pasteInto(page, { text: 'a\tb' })`, Export (`exportAndUnzip`) → XML enthält `<w:tab/>`-Äquivalent bzw. `<text:tab/>` (ODT), nicht mehrere Leerzeichen |
+| E-40 | #6 Tab-Zeichen | `pasteInto(page, { text: 'a\tb' })`, Export (`exportAndUnzip`) → **format-spezifisch, gegen den echten Writer verifiziert:** DOCX (`docx/writer.ts` `encodeRunText`) hält das **literale** Tab-Zeichen im Run-Text (`word/document.xml` enthält den Bytefolge `a\tb` innerhalb `<w:t>`; ein einzelner Tab in der Wortmitte triggert **kein** `xml:space="preserve"` und wird **nicht** zu `<w:tab/>` konvertiert). ODT (`odt/writer.ts` `encodeWhitespace`, Zeile 63) wandelt `\t` in **`<text:tab/>`**. In **beiden** Fällen darf der Tab **nicht** zu Leerzeichen kollabieren. **Determinismus/Abgrenzung:** Dieser Fall ist über `pasteInto` (synthetisches `text/plain` mit `\t`) implementierbar und **nicht** als `test.fixme` zu führen — im Gegensatz zum reinen Tastatur-Weg (`kopieren`/`clipboard-roundtrip.spec.ts:247` ist `test.fixme`, weil die `Tab`-Taste im Editor den Fokus wechselt statt ein `\t` einzufügen). Paste umgeht diese Tastatur-Grenze. |
 | E-41 | #9 wiederholtes Paste | siehe E-30 |
 | E-42 | #10 Fokus außerhalb Editor | `pasteInto` wird auf ein anderes Element (z. B. den versteckten Datei-`input[type=file]` oder — falls vorhanden — ein Dateiname-Feld) statt auf `.ProseMirror` dispatcht → Dokumentinhalt bleibt unverändert |
 | E-43 | #11 `text/html` + `text/plain` gleichzeitig | `pasteInto(page, { html: '<p>HTML-Variante</p>', text: 'Text-Variante' })` → Ergebnis zeigt `'HTML-Variante'`, **nicht** `'Text-Variante'` (HTML hat Vorrang, Standard-Browserverhalten, muss bestätigt werden) |
 | E-44 | #12 Bild ohne HTML | siehe E-17; Testfall hält explizit fest, ob das Verhalten „funktioniert" oder „fehlt" ist (nicht offen lassen) |
 | E-45 | #13 Paste + Toolbar-Aktion danach | siehe E-07 |
 | E-46 | Kontextmenü-Guard (Anforderung Abschnitt 1 #2 / 4.5) | `page.locator('.ProseMirror').dispatchEvent('contextmenu')` bzw. `page.evaluate(...)` mit manuell konstruiertem `MouseEvent('contextmenu', { cancelable: true })` → `event.defaultPrevented === false` (ausgelesen per `page.evaluate`-Rückgabewert) — automatisierbarer Ersatz für die laut Anforderung 6.3 explizit manuell zu prüfende echte Menü-Optik |
+| E-47 | #15 Skript-Injektion (Anforderung 3.11) | **Vor** dem Paste `const errs: string[] = []; page.on('pageerror', e => errs.push(String(e)))` und `page.evaluate(() => (window as any).__xss = false)` setzen; dann `pasteInto(page, { html: '<p>Anfang <img src=x onerror="window.__xss=true"> <script>window.__xss=true<\/script> Ende</p>' })`; Prüfung: `await page.evaluate(() => (window as any).__xss)` **bleibt `false`** (kein aktiver Inhalt ausgeführt), `errs` leer, `'Anfang'`/`'Ende'` beide erhalten, `.ProseMirror img` Anzahl 0, kein `<script>`-Element im Editor-DOM — deckt Abschnitt 7 des Umsetzungsplans auf E2E-Ebene, ergänzend zu U-11 auf Unit-Ebene |
+| E-48 | #17 nur `text/rtf` in der Zwischenablage | `page.evaluate` dispatcht ein `paste`-Event, dessen `DataTransfer` **ausschließlich** `dt.setData('text/rtf', '{\\rtf1 ... }')` gesetzt hat (kein `text/html`, kein `text/plain`); Prüfung: **kein Absturz** (Folge-Tipptest reagiert), Ergebnis wird als **Befund festgehalten** (ProseMirror verarbeitet nur `text/html`/`text/plain` → erwartet No-Op oder Klartext-Fallback), nicht als Vorab-Sollwert angenommen |
+| E-52 | #20 Eingefügter Hyperlink (`<a href>`) | `pasteInto(page, { html: '<p>Vorher <a href="https://example.invalid/ziel">Linktext</a> nachher</p>' })`; Prüfung: **sichtbarer Linktext `Linktext` bleibt vollständig erhalten** (das Schema kennt **noch keine** Link-Mark, `hyperlink-einfuegen` = „fehlt"), die Verlinkung entfällt (`.ProseMirror a` Anzahl 0), umgebender Text `Vorher`/`nachher` erhalten. **Sicherheits-Verschärfung:** zusätzlich mit `href="javascript:window.__xss=true"` prüfen, dass **kein** `javascript:`-Ziel überlebt (analog E-47: `window.__xss` bleibt `false`). Tatsächliches Verhalten als **Befund** dokumentieren; sobald die Link-Mark existiert, wird der Fall auf „URL erhalten" verschärft (req.md Grenzfall 20) |
+| E-53 | #21 Mark-Übernahme: Klartext in formatierten Lauf (**Gegenstück zu E-25**) | Fett-Lauf erzeugen (`getByTitle('Fett').click()`, `page.keyboard.type('fett')`), Cursor **mitten** in den fetten Text setzen (`ArrowLeft`, dann `waitForTimeout(50)`), `pasteInto(page, { text: 'X' })`; Prüfung: **Standard-Strg+V erbt die umgebenden Marks** → das eingefügte `X` liegt innerhalb `<strong>` (`page.locator('.ProseMirror strong')` enthält `X`). Belegt zusammen mit E-25 (Einfügen ohne Formatierung erbt die Marks **nicht**) die von req.md 3.3/Grenzfall 21 **verbindlich getrennt** geforderte Abgrenzung — nicht nur behauptet, sondern beide Richtungen geprüft |
 
 ### 3.6 Drag & Drop (Anforderung Abschnitt 1 #6)
 
@@ -329,6 +439,7 @@ gelten je einmal pro Karte, `test.describe.each` oder zwei parallele
 |---|---|---|
 | E-50 | `dropInto(page, { html: '<p>Gedroppter Text</p>' })` | kein Absturz, `'Gedroppter Text'` erscheint im Editor an der Drop-Position |
 | E-51 | `dropInto(page, { fileBase64: TINY_PNG_BASE64, fileName: 'bild.png' })` (reiner Datei-Drop, kein HTML) | `.ProseMirror img` erscheint als `image`-Knoten mit `data:`-Quelle (Anforderung 1 #6: „idealerweise gleiches Ergebnis wie Einfügen per Zwischenablage") |
+| E-54 | #22 Drop aus anderem Fenster: `text/uri-list` **ohne** `File` | Inline-`page.evaluate` (der `dropInto`-Helper deckt nur `text/html`/`File` ab): `DragEvent('drop')` mit `dt.setData('text/uri-list', 'https://example.invalid/ziel')` und **ohne** `dt.items.add(file)`, optional zusätzlich `text/html` mit einem `<img src="https://…">`. Prüfung — tatsächliches Verhalten als **Befund festhalten** (req.md Grenzfall 22, kein Vorab-Sollwert): **kein Absturz** (Folge-Tipptest reagiert); **kein Netzwerk-Fetch** (keine ausgehende Request — über `page.on('request', …)` auf die Bild-/Ziel-URL abgesichert); es entsteht **kein** nicht-einbettbares `image` (`.ProseMirror img[src^="http"]` Anzahl 0, sonst Export-Bruch 3.12); der URL-/Linktext verschwindet **nicht** still — entweder als sichtbarer Text erhalten **oder** (bei begleitendem externem `<img>`) als Platzhalter + `pasteNotice` behandelt wie E-15 |
 
 ### 3.7 Feature-Rundreise mit echtem Datei-Export (Anforderung Abschnitt 5.2) — Kernstück dieses Testplans
 
@@ -336,12 +447,21 @@ Für **jede** Zeile der folgenden Tabelle: neues Dokument (bzw. hochgeladenes
 Dokument, siehe Cross-Format-Spalte) → per `pasteInto`/`pasteImageBlob`
 einfügen → `exportAndUnzip(page, 'docx')` **oder** `('odt')` (echter
 `page.waitForEvent('download')`, echte Datei von der Festplatte gelesen,
-echtes `JSZip.loadAsync`) → Inhalt im entpackten XML geprüft → Datei
-anschließend **erneut über den Datei-Upload-Input** importiert
-(`input.setInputFiles({ name, mimeType, buffer })`, exakt das Download-Buffer
-wiederverwendet) → Inhalt im `.ProseMirror`-DOM erneut geprüft. Das ist die
-volle Rundreise **über die echte Anwendung**, nicht nur `writeDocx`/`readDocx`
-direkt aufgerufen (das leistet bereits Abschnitt 2.2 auf Unit-Ebene).
+echtes `JSZip.loadAsync`) → Inhalt im entpackten XML geprüft → **zurück zum
+Format-Picker navigieren** (`await page.getByRole('button', { name: /formate/i }).click()`)
+→ Datei **erneut über den Datei-Upload-Input** importiert
+(`docxCard(page).locator('input[type="file"]').setInputFiles({ name, mimeType, buffer })`,
+exakt das Download-Buffer wiederverwendet) → Inhalt im `.ProseMirror`-DOM erneut
+geprüft. Das ist die volle Rundreise **über die echte Anwendung**, nicht nur
+`writeDocx`/`readDocx` direkt aufgerufen (das leistet bereits Abschnitt 2.2 auf
+Unit-Ebene).
+
+> **Verifizierter Bedienpfad (nicht überspringen):** Der `input[type="file"]`
+> existiert **nur** auf dem Picker-Screen, **nicht** im geöffneten
+> `DocumentWorkspace`-Editor. Ein Reimport ohne vorheriges Zurücknavigieren per
+> „Formate"-Button findet den Input nicht und schlägt fehl. Beleg: exakt so in
+> `docx.spec.ts:241/331` und `odt.spec.ts:217/318` (`getByRole('button', { name: /formate/i }).click()`
+> vor jedem zweiten `setInputFiles`).
 
 | ID | Inhalt (Anforderung 5.2, Nr.) | DOCX | ODT | Cross-Format |
 |---|---|---|---|---|
@@ -383,12 +503,27 @@ registriert (`transformPastedHTML`, `handleDrop`, …), die mit
 `columnResizing()`/`tableEditing()`/`dropCursor()`/`gapCursor()` interagieren
 könnten (`einfuegen-code.md` Abschnitt 8.3).
 
-### 3.9 Selection-Sync-Regressionstest mit Paste-Sequenz (Anforderung Abschnitt 7, letzter Punkt)
+### 3.9 Selection-Sync-Regressionstest mit Paste-Sequenz (Anforderung Abschnitt 6, Punkt 6)
 
 Ergänzung eines neuen `test()` **innerhalb** von
-`tests/e2e/selection-regression.spec.ts` (nicht in `paste.spec.ts`, damit er
-dauerhaft im bestehenden Regressions-Describe-Block läuft und bei jedem Lauf
-dieser Datei mitgeprüft wird):
+`tests/e2e/selection-regression.spec.ts` (nicht in `clipboard-paste.spec.ts`,
+damit er dauerhaft im bestehenden Regressions-Describe-Block läuft und bei jedem
+Lauf dieser Datei mitgeprüft wird).
+
+**Determinismus (verbindlich, nicht optional).** Der bestehende
+`selection-regression.spec.ts` dokumentiert an zwei Stellen (Zeilen 27-34 und
+102-103) genau die Race-Condition, die dieser Testtyp auslöst: ProseMirror
+erfährt einen **nativen**, tastaturgetriebenen Caret-Move (`End`, Klick) nur über
+das **asynchrone** `selectionchange`-Event des Browsers. Ein unmittelbar
+folgendes `Enter` (oder Tippen) — wie es jede Playwright-`press()`-Sequenz **ohne
+menschliche Reaktionszeit** feuert — kann der Sync-Nachführung vorauslaufen und
+noch auf der **alten** Position wirken. Deshalb steht nach **jedem** nativen
+Caret-Move (und nach dem asynchron verarbeiteten Paste-Dispatch) ein
+`await page.waitForTimeout(50)`, bevor die nächste Taste kommt — exakt das Muster
+der bestehenden Datei. Das ist **kein** willkürliches Sleep, sondern gibt der
+bereits in Flug befindlichen Selektions-Synchronisation Zeit zu landen; ohne ihn
+ist der Test flaky (bekanntes, im Repo bereits gelöstes Fehlerbild, vgl. Commits
+`db61c89`/`0797d13`).
 
 ```ts
 test('paste over a stale selection does not corrupt subsequent typing (paste variant)', async ({ page }) => {
@@ -404,9 +539,16 @@ test('paste over a stale selection does not corrupt subsequent typing (paste var
       new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }),
     )
   })
+  // Paste ersetzt die AllSelection über eine asynchron verarbeitete Transaktion;
+  // der Selektions-Sync muss landen, bevor der nächste native Caret-Move kommt.
+  await page.waitForTimeout(50)
 
   await editor.click()
   await page.keyboard.press('End')
+  // Nativer Caret-Move (End) wird nur via asynchronem selectionchange sichtbar —
+  // ohne diese Wartezeit racet das folgende Enter dagegen (siehe
+  // selection-regression.spec.ts:27-34).
+  await page.waitForTimeout(50)
   await page.keyboard.press('Enter')
   await page.keyboard.type('Zweiter Absatz.')
 
@@ -417,11 +559,42 @@ test('paste over a stale selection does not corrupt subsequent typing (paste var
 })
 ```
 
+**Diese Wartezeit-Regel gilt für den gesamten Abschnitt 3**, nicht nur hier:
+jeder E2E-Testfall, der nach einem `pasteInto`/`pasteImageBlob`/`dropInto` oder
+nach einem nativen Caret-Move (`click`, `Home`, `End`, `ArrowLeft/Right`) sofort
+eine weitere Taste drückt (Tippen, `Enter`, `ControlOrMeta+z`, Toolbar-Klick auf
+eine Selektion), schiebt ein `await page.waitForTimeout(50)` dazwischen. Das
+betrifft insbesondere E-01 (ArrowLeft → paste → tippen), E-07/E-45
+(paste → Fett), E-28…E-30 (paste → Undo/Redo) und E-35/E-36 (Caret an
+Anfang/Ende → paste). `page.keyboard.type(...)` selbst braucht **keine**
+künstliche Verzögerung zwischen den Zeichen — der Flake entsteht nur an der Naht
+zwischen nativem Selektions-Move und der nächsten Aktion, nicht innerhalb einer
+Tippfolge.
+
+**Determinismus bei asynchronen Einfüge-Pfaden (verbindlich, kein festes Sleep):**
+Der 50-ms-Puffer oben deckt ausschließlich die *Selektions-Sync*-Naht ab. Für die
+**asynchronen Bild-Pfade** (`pasteImageBlob`, externes `<img>` → Platzhalter, Datei-
+Drop `E-51`) gilt zusätzlich eine strengere Regel: **niemals** ein fester
+`waitForTimeout` als Bedingung, sondern auf das **beobachtbare Ergebnis** warten,
+bevor die nächste Aktion (Undo, Export, Folgetaste) kommt. `insertImageFile`
+(`einfuegen-code.md` 5.2) durchläuft `FileReader.readAsDataURL` → dessen Laufzeit ist
+auf langsamer CI **nicht** durch 50 ms garantiert. Konkret vor dem nächsten Schritt
+eine Playwright-Web-First-Assertion (auto-retry) setzen, z. B.
+`await expect(page.locator('.ProseMirror img')).toBeVisible()` (bzw. für den
+Platzhalter-/Notice-Pfad `await expect(page.getByRole('status')).toBeVisible()`).
+Das betrifft insbesondere **E-16** (externes Bild → **erst** wenn Platzhalter/Notice
+im DOM steht, exportieren — sonst racet der Export gegen die noch laufende
+Transaktion), **E-17/E-44/E-51** (Bild sichtbar abwarten) und **E-28 für den
+Bild-Zweig** (Undo erst nach bestätigter Bild-Einfügung, sonst ist die Transaktion,
+die rückgängig gemacht werden soll, noch nicht committed). Diese Ergebnis-gebundene
+Wartebedingung ist robuster als jeder feste Timeout und die bevorzugte Form überall
+dort, wo ein sichtbarer DOM-Effekt existiert, auf den man warten kann.
+
 ### 3.10 Nicht automatisierbar — manuell/exploratory (Anforderung Abschnitt 6.3)
 
 | # | Prüfung | Durchführung |
 |---|---|---|
-| M-01 | Grenzfall 14: Copy-Paste aus echter, lokal installierter Microsoft-Word- bzw. LibreOffice-Writer-Instanz | Text mit Fett/Kursiv/Überschrift/Liste in Word/Writer erstellen, kopieren, in die App einfügen (echtes Strg+V, kein simuliertes Event), Ergebnis mit Screenshot dokumentieren; mind. Klartext muss korrekt ankommen, Formatierung so gut wie im Schema abbildbar |
+| M-01 | Grenzfall 16: Copy-Paste aus echter, lokal installierter Microsoft-Word- bzw. LibreOffice-Writer-Instanz | Text mit Fett/Kursiv/Überschrift/Liste in Word/Writer erstellen, kopieren, in die App einfügen (echtes Strg+V, kein simuliertes Event), Ergebnis mit Screenshot dokumentieren; mind. Klartext muss korrekt ankommen, Formatierung so gut wie im Schema abbildbar |
 | M-02 | Grenzfall 8: IME-Komposition | Mit aktivierter japanischer/chinesischer IME während offener Komposition einen Paste-Vorgang auslösen (Tastenkombination oder Kontextmenü), prüfen: kein Datenverlust der Komposition, kein Crash |
 | M-03 | Touch-Paste-Menüs auf `Mobile`/`Tablet` (nice-to-have) | Reales Gerät oder Chrome-DevTools-Geräteemulation, natives Touch-Kontextmenü „Einfügen" antippen |
 | M-04 | Kontextmenü-Optik | Rechtsklick im Editor in einem echten, nicht headless laufenden Browser, visuell bestätigen, dass „Einfügen" im nativen Menü erscheint und funktioniert |
@@ -442,25 +615,28 @@ LibreOffice-Version, Ergebnis.
 | 1 (#6 Drag & Drop) | E-50, E-51 |
 | 3.1 | E-01, E-35, E-36 |
 | 3.2 | E-02, E-03, E-04 |
-| 3.3 | E-05, E-06, U-01…U-10 |
+| 3.3 | E-05, E-06, **E-53 (Mark-Übernahme Standard-Strg+V)**, U-01…U-10 |
 | 3.4 | E-10…E-16, U-11…U-18 |
 | 3.5 | E-17, E-44, U-19, U-20 |
 | 3.6 | E-18…E-22 |
 | 3.7 | E-25, E-26, U-21…U-23 |
 | 3.8 | E-28, E-29, U-23 |
-| 3.9 | E-15, E-27 |
-| 4 (Grenzfälle 1–14) | E-35…E-46, M-01, M-02 |
+| 3.9 (Rückmeldung/kein stiller Fehlschlag) | E-15, E-27 |
+| 3.10 (Datenschutz) | `clipboard-privacy.test.ts` (bestehend, statisch) bleibt grün, da P0 kein `navigator.clipboard` nutzt; U-21…U-23 (kein Logging/Persistieren der gelesenen Werte) |
+| 3.11 (Sicherheit / Skript-Injektion) | Unit: U-11, U-12; E2E: **E-47**, **E-52** (`javascript:`-Link überlebt nicht) |
+| 3.12 (Export-Robustheit nach Einfügen) | Unit: Abschnitt 2.2 (migrierte Tests) , U-17/U-18; E2E: E-16 |
+| 4 (Grenzfälle 1–22) | E-35…E-48 (1–13,15,17), M-01 (16), M-02 (8), M-03 (19), Browser-Matrix (18) über `clipboard`-Dateiname + Safari-/Firefox-Projekte, **E-52 (20 Hyperlink)**, **E-53 (21 Mark-Übernahme)**, **E-54 (22 uri-list-Drop)** |
 | 5.1 (Baseline-Rundreise) | Abschnitt 3.8 (Bestandstests) |
 | 5.2 (Feature-Rundreise) | E-60…E-67 |
 | 6 (Testplan-Hinweise) | Abschnitt 3.1 (Infrastruktur), M-01 |
 | 7 (Freigabekriterium) | Abschnitt 6 unten |
-| `einfuegen-code.md` Abschnitt 1 (Export-Absturz-Bug) | Unit: Abschnitt 2.2 Testfälle; E2E: E-16 |
+| `einfuegen-code.md` Abschnitt 0.4/6 (Export-Absturz-Bug + Härtung) | Unit: Abschnitt 2.2 (migrierte `throws`→`kein throw`-Tests); E2E: E-16 |
 
 ---
 
 ## 5. Testdaten/Fixtures
 
-- `TINY_PNG_BASE64` — wiederverwendbar aus `roundtrip.test.ts:5-6`
+- `TINY_PNG_BASE64` — wiederverwendbar aus `roundtrip.test.ts:11-12`
   (`TINY_PNG`, dort mit `data:`-Präfix; für die Blob-Konstruktion in
   Abschnitt 3.1 wird nur der Base64-Teil nach dem Komma benötigt).
 - Word-Conditional-Comment-/`mso-*`-Fixture (U-12): wird als String-Literal in

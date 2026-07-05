@@ -11,6 +11,7 @@ import { gapCursor } from 'prosemirror-gapcursor'
 import { wordSchema } from '../schema'
 import { cutSelection, insertHardBreak } from './commands'
 import { clipboardTextSerializer } from './clipboard'
+import { createPastePlugin } from './paste'
 import { createPaginationPlugin } from './pagination'
 import { pageBackgroundStyle, PAGE_WIDTH_PX, PAGE_MARGIN_PX } from './pageLayout'
 import { Toolbar } from './Toolbar'
@@ -69,9 +70,11 @@ export function WordEditor({ document: doc, onChange }: FormatEditorProps<WordDo
   onChangeRef.current = onChange
   const [, forceRender] = useState(0)
   const [cutError, setCutError] = useState<string | null>(null)
+  const [pasteNotice, setPasteNotice] = useState<string | null>(null)
 
   // Visible-but-transient feedback (never a permanent/blocking state).
   useAutoDismiss(cutError, setCutError)
+  useAutoDismiss(pasteNotice, setPasteNotice)
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -108,6 +111,11 @@ export function WordEditor({ document: doc, onChange }: FormatEditorProps<WordDo
         keymap(baseKeymap),
         columnResizing(),
         tableEditing(),
+        // Paste/drop pipeline: plain-text line semantics, HTML sanitisation,
+        // external-image → placeholder, image-blob paste/drop, "paste without
+        // formatting". `setPasteNotice` is a stable React setter, so wiring it in
+        // the one-time init effect is safe. See specs/einfuegen-code.md 5.3.
+        createPastePlugin({ onNotice: setPasteNotice }),
         dropCursor(),
         gapCursor(),
         createPaginationPlugin(),
@@ -168,6 +176,14 @@ export function WordEditor({ document: doc, onChange }: FormatEditorProps<WordDo
   return (
     <div className="flex flex-col h-full">
       {viewRef.current && <Toolbar view={viewRef.current} cutError={cutError} setCutError={setCutError} />}
+      {pasteNotice && (
+        <div
+          role="status"
+          className="px-3 py-1.5 text-xs bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-200"
+        >
+          {pasteNotice}
+        </div>
+      )}
       <div className="flex-1 overflow-auto bg-neutral-200 dark:bg-neutral-950 flex justify-center py-8">
         <div
           style={{

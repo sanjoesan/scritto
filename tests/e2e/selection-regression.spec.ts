@@ -108,4 +108,32 @@ test.describe('Selection-sync regression (stale AllSelection after toolbar actio
     await expect(editor).toContainText('Zweiter Absatz.')
     await expect(page.locator('.ProseMirror p')).toHaveCount(2)
   })
+
+  // specs/einfuegen-req.md Abschnitt 2 / Grenzfall 14, einfuegen-code.md 8.2 #11:
+  // the same class of regression with a PASTE over a Strg+A selection as the
+  // triggering action. A paste replaces the selection; the model selection must
+  // stay consistent so a subsequent click + type does not wipe the pasted text.
+  test('select-all, paste, click to reposition, type — pasted text must survive', async ({ page }) => {
+    const editor = page.locator('.ProseMirror')
+    await editor.click()
+    await page.keyboard.type('Original-Text')
+
+    await page.keyboard.press('ControlOrMeta+a')
+    await page.evaluate(() => {
+      const dt = new DataTransfer()
+      dt.setData('text/html', '<p>Eingefuegt</p>')
+      const el = document.querySelector('.ProseMirror') as HTMLElement
+      el.focus()
+      el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
+    })
+
+    await editor.click()
+    await page.keyboard.press('End')
+    // See the identical comment in the first test above (async selectionchange).
+    await page.waitForTimeout(50)
+    await page.keyboard.type(' weiter')
+
+    await expect(editor).toContainText('Eingefuegt weiter')
+    await expect(editor).not.toContainText('Original-Text')
+  })
 })

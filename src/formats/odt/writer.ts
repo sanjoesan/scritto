@@ -15,6 +15,7 @@ import {
 import { ImageCollector, type CollectedImage } from './imageCollector'
 import { PAGE_WIDTH_MM, PAGE_HEIGHT_MM, PAGE_MARGIN_MM } from '../shared/pageGeometry'
 import { stampZipEntriesForDeterminism } from '../shared/zipDeterminism'
+import { imageFallbackText, isEmbeddableImageSrc } from '../shared/imageFallback'
 
 /** ODF measures page geometry in cm; renders e.g. 25 -> "2.5cm", 210 -> "21cm". */
 function mmToCm(mm: number): string {
@@ -175,6 +176,11 @@ function blockToOdt(node: JsonNode, styles: TextStyleRegistry, images: ImageColl
     }
     case 'image': {
       const src = String(node.attrs?.src ?? '')
+      if (!isEmbeddableImageSrc(src)) {
+        // A non-data-URL image must never abort the export (einfuegen-req.md
+        // 0.7/3.12, Live-Bug) — emit visible placeholder text instead.
+        return `<text:p>${escapeXml(imageFallbackText(String(node.attrs?.alt ?? '')))}</text:p>`
+      }
       const fileName = images.add(src)
       const width = node.attrs?.width ? `${node.attrs.width}px` : '6cm'
       const height = node.attrs?.height ? `${node.attrs.height}px` : '4cm'

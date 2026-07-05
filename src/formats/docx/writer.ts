@@ -6,6 +6,7 @@ import { ImageCollector, type CollectedImage } from './imageCollector'
 import { HEADING_STYLE_ID, headingStylesXml, BULLET_NUM_ID, ORDERED_NUM_ID, numberingXml } from './styleDefs'
 import { defaultPageSetupXml } from './pageSetup'
 import { stampZipEntriesForDeterminism } from '../shared/zipDeterminism'
+import { imageFallbackText, isEmbeddableImageSrc } from '../shared/imageFallback'
 
 interface JsonNode {
   type: string
@@ -73,6 +74,14 @@ function paragraphPropsXml(align: string, extra = ''): string {
 
 function imageParagraphXml(node: JsonNode, images: ImageCollector, rels: RelationshipRegistry): string {
   const src = String(node.attrs?.src ?? '')
+  if (!isEmbeddableImageSrc(src)) {
+    // A non-data-URL image (e.g. an external https:// image that arrived via
+    // paste/drop) must NEVER abort the export — otherwise the whole document
+    // becomes permanently un-exportable (einfuegen-req.md 0.7/3.12, Live-Bug).
+    // Second line of defence next to the paste-time placeholder replacement.
+    const fallback = escapeXml(imageFallbackText(String(node.attrs?.alt ?? '')))
+    return `<w:p>${paragraphPropsXml('left')}<w:r><w:t xml:space="preserve">${fallback}</w:t></w:r></w:p>`
+  }
   const fileName = images.add(src)
   const relId = rels.add(RELATIONSHIP_TYPES.image, `media/${fileName.split('/').pop()}`)
   const widthPx = Number(node.attrs?.width ?? 300)

@@ -76,4 +76,33 @@ describe('DOCX writer: external validation via mammoth (speichern-exportieren-qa
     expect(html).toContain('Zelle B')
     expect(html).toMatch(/<table>/)
   })
+
+  // einfuegen-req.md 5.2 Punkt 12 / 3.12: a document that (via paste/drop) acquired
+  // a non-embeddable external image must still export to a .docx an INDEPENDENT
+  // parser accepts — the placeholder must be there, the external URL must not, and
+  // there must be no writer crash. Guards the export-hardening through mammoth, not
+  // just our own reader.
+  it('produces a valid .docx with placeholder text for a non-embeddable external image (einfuegen 5.2/3.12)', async () => {
+    const content: WordDocumentContent = {
+      body: {
+        type: 'doc',
+        content: [
+          paragraph('vor dem Bild'),
+          { type: 'image', attrs: { src: 'https://example.invalid/x.png', alt: 'Foto' } },
+          paragraph('nach dem Bild'),
+        ],
+      },
+      header: null,
+      footer: null,
+      meta: { title: '' },
+    }
+    const blob = await writeDocx(content)
+    const buffer = Buffer.from(await blob.arrayBuffer())
+    const { value: html, messages } = await mammoth.convertToHtml({ buffer })
+    expect(messages.filter((m) => m.type === 'error'), JSON.stringify(messages)).toEqual([])
+    expect(html).toContain('[Bild: Foto]')
+    expect(html).toContain('vor dem Bild')
+    expect(html).toContain('nach dem Bild')
+    expect(html).not.toContain('example.invalid')
+  })
 })

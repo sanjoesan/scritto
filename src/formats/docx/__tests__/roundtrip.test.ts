@@ -219,10 +219,26 @@ describe('DOCX round trip: unsupported_block', () => {
   })
 })
 
-describe('DOCX round trip: negative case (external image URL)', () => {
-  it('throws a readable error instead of silently dropping an image with a non-data: src', async () => {
-    const original = doc([{ type: 'image', attrs: { src: 'https://example.com/bild.png', alt: '' } }])
-    await expect(writeDocx(original)).rejects.toThrow(/data-URL/)
+describe('DOCX round trip: external image URL is hardened (einfuegen 0.7/3.12, ex Live-Bug)', () => {
+  // Previously the writer THREW on a non-data: image src, which permanently
+  // broke export for any document that acquired such an image (e.g. via paste).
+  // The hardened writer must instead emit visible placeholder text so the export
+  // never aborts and the surrounding text survives the round trip.
+  it('exports a non-data: image as placeholder text without throwing', async () => {
+    const original = doc([{ type: 'image', attrs: { src: 'https://example.com/bild.png', alt: 'Foto' } }])
+    const blob = await writeDocx(original) // must NOT reject
+    expect(blob).toBeTruthy()
+    const reimported = await readDocx(blob)
+    const text = JSON.stringify(reimported.body)
+    expect(text).toContain('[Bild: Foto]')
+    expect(text).not.toContain('https://example.com/bild.png')
+  })
+
+  it('falls back with a generic placeholder when there is no alt text', async () => {
+    const original = doc([{ type: 'image', attrs: { src: 'https://example.com/x.png', alt: '' } }])
+    const blob = await writeDocx(original)
+    const reimported = await readDocx(blob)
+    expect(JSON.stringify(reimported.body)).toContain('[Bild nicht eingebettet]')
   })
 })
 
