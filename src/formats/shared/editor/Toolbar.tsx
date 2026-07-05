@@ -1,13 +1,19 @@
-import type { ChangeEvent } from 'react'
+import type { ChangeEvent, ReactNode } from 'react'
 import type { EditorView } from 'prosemirror-view'
 import type { Command } from 'prosemirror-state'
 import { toggleMark } from 'prosemirror-commands'
 import { wordSchema } from '../schema'
 import {
+  addColumnAfter,
+  addColumnBefore,
+  addRowAfter,
+  addRowBefore,
   applyMarkColor,
   canCut,
   clearMarkColor,
   cutSelection,
+  deleteColumnOrTable,
+  deleteRowOrTable,
   insertImage,
   insertTable,
   isAlignActive,
@@ -27,6 +33,16 @@ interface ToolbarProps {
 
 function run(view: EditorView, command: Command) {
   command(view.state, view.dispatch, view)
+  view.focus()
+}
+
+/**
+ * Runs a table-structure command and scrolls the changed spot back into view
+ * (View-Sync, specs/tabelle-struktur-bearbeiten-req.md §2.1–2.6): the affected cell must
+ * stay visible after inserting/deleting a row or column, even in wide/long tables.
+ */
+function runTable(view: EditorView, command: Command) {
+  command(view.state, (tr) => view.dispatch(tr.scrollIntoView()), view)
   view.focus()
 }
 
@@ -106,6 +122,109 @@ function AlignButton({ view, align, label }: { view: EditorView; align: Align; l
       }`}
     >
       {label}
+    </button>
+  )
+}
+
+function TableIcon({ children }: { children: ReactNode }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {children}
+    </svg>
+  )
+}
+
+// Six distinct inline-SVG icons (no emoji, req §1 #11). Row ops carry horizontal grid
+// lines, column ops vertical ones; inserts show a "+" on the relevant edge, deletes an
+// "✕" over the affected band — so above/below/left/right/insert/delete are all visually
+// distinguishable, not only by tooltip.
+const IconRowAbove = (
+  <TableIcon>
+    <rect x="3" y="9" width="18" height="12" rx="1.5" />
+    <line x1="3" y1="15" x2="21" y2="15" />
+    <path d="M12 2.5v4M10 4.5h4" />
+  </TableIcon>
+)
+const IconRowBelow = (
+  <TableIcon>
+    <rect x="3" y="3" width="18" height="12" rx="1.5" />
+    <line x1="3" y1="9" x2="21" y2="9" />
+    <path d="M12 17.5v4M10 19.5h4" />
+  </TableIcon>
+)
+const IconRowDelete = (
+  <TableIcon>
+    <rect x="3" y="4" width="18" height="16" rx="1.5" />
+    <line x1="3" y1="9.5" x2="21" y2="9.5" />
+    <line x1="3" y1="14.5" x2="21" y2="14.5" />
+    <path d="M9.6 10.6l4.8 3.3M14.4 10.6l-4.8 3.3" />
+  </TableIcon>
+)
+const IconColLeft = (
+  <TableIcon>
+    <rect x="7" y="3" width="14" height="18" rx="1.5" />
+    <line x1="14" y1="3" x2="14" y2="21" />
+    <path d="M2.5 12h4M4.5 10v4" />
+  </TableIcon>
+)
+const IconColRight = (
+  <TableIcon>
+    <rect x="3" y="3" width="14" height="18" rx="1.5" />
+    <line x1="10" y1="3" x2="10" y2="21" />
+    <path d="M17.5 12h4M19.5 10v4" />
+  </TableIcon>
+)
+const IconColDelete = (
+  <TableIcon>
+    <rect x="4" y="3" width="16" height="18" rx="1.5" />
+    <line x1="9.5" y1="3" x2="9.5" y2="21" />
+    <line x1="14.5" y1="3" x2="14.5" y2="21" />
+    <path d="M10.6 9.6l3.3 4.8M13.9 9.6l-3.3 4.8" />
+  </TableIcon>
+)
+
+/**
+ * A table-structure toolbar button. Disabled (with a visible reason in title/aria-label)
+ * whenever the cursor is not inside a table — the single enable condition for all six
+ * (req §1 #7, §2.8). Mouse-down preventDefault preserves the editor selection and stops
+ * focus theft; the command runs in onClick, which fires for a mouse click AND for keyboard
+ * Enter/Space, so every activation path works with no double-trigger (req §1 #8).
+ */
+function TableOpButton({
+  view,
+  command,
+  label,
+  children,
+}: {
+  view: EditorView
+  command: Command
+  label: string
+  children: ReactNode
+}) {
+  const enabled = isInTable(view.state)
+  const title = enabled ? label : `${label} (nur innerhalb einer Tabelle verfügbar)`
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      disabled={!enabled}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => runTable(view, command)}
+      className="grid place-items-center min-w-10 min-h-10 rounded text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+    >
+      {children}
     </button>
   )
 }
@@ -287,6 +406,29 @@ export function Toolbar({ view, cutError, setCutError }: ToolbarProps) {
       >
         ⊞ Tabelle
       </button>
+
+      {/* Tabellenstruktur bearbeiten (specs/tabelle-struktur-bearbeiten-req.md): one
+          contiguous block, all six disabled outside a table. */}
+      <TableOpButton view={view} command={addRowBefore} label="Zeile oberhalb einfügen">
+        {IconRowAbove}
+      </TableOpButton>
+      <TableOpButton view={view} command={addRowAfter} label="Zeile unterhalb einfügen">
+        {IconRowBelow}
+      </TableOpButton>
+      <TableOpButton view={view} command={deleteRowOrTable()} label="Zeile löschen">
+        {IconRowDelete}
+      </TableOpButton>
+      <TableOpButton view={view} command={addColumnBefore} label="Spalte links einfügen">
+        {IconColLeft}
+      </TableOpButton>
+      <TableOpButton view={view} command={addColumnAfter} label="Spalte rechts einfügen">
+        {IconColRight}
+      </TableOpButton>
+      <TableOpButton view={view} command={deleteColumnOrTable()} label="Spalte löschen">
+        {IconColDelete}
+      </TableOpButton>
+
+      <div className="w-px h-5 bg-neutral-300 dark:bg-neutral-700 mx-1" />
 
       <label className="px-2 py-1 rounded text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300 cursor-pointer">
         🖼 Bild

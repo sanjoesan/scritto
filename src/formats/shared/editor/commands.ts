@@ -1,9 +1,22 @@
 import type { Command, EditorState } from 'prosemirror-state'
+import { TextSelection } from 'prosemirror-state'
 import { wrapInList, liftListItem } from 'prosemirror-schema-list'
-import { isInTable } from 'prosemirror-tables'
+import {
+  isInTable,
+  addRowBefore,
+  addRowAfter,
+  deleteRow,
+  addColumnBefore,
+  addColumnAfter,
+  deleteColumn,
+  selectedRect,
+} from 'prosemirror-tables'
 import { wordSchema } from '../schema'
 
-export { isInTable }
+// Insert commands are used verbatim from prosemirror-tables (they already handle
+// colspan/rowspan correctly). Delete needs custom "last row/column removes the whole
+// table" handling — see deleteRowOrTable / deleteColumnOrTable below.
+export { isInTable, addRowBefore, addRowAfter, addColumnBefore, addColumnAfter }
 
 export type Align = 'left' | 'center' | 'right' | 'justify'
 
@@ -98,6 +111,61 @@ export function insertTable(rows: number, cols: number): Command {
       dispatch(state.tr.replaceSelectionWith(table))
     }
     return true
+  }
+}
+
+/**
+ * Removes the entire table enclosing the current selection, then places the cursor in
+ * a sensible spot next to where it stood. If the table was the only block in the
+ * document, an empty paragraph is inserted so the schema's `content: 'block+'` invariant
+ * holds and the editor stays usable. Undo restores the whole table in one step.
+ */
+function deleteEnclosingTable(): Command {
+  return (state, dispatch) => {
+    if (!isInTable(state)) return false
+    const rect = selectedRect(state)
+    const tablePos = rect.tableStart - 1
+    const tableNode = state.doc.nodeAt(tablePos)
+    if (!tableNode || tableNode.type.name !== 'table') return false
+    if (dispatch) {
+      let tr = state.tr.delete(tablePos, tablePos + tableNode.nodeSize)
+      let cursorPos = tablePos
+      if (tr.doc.childCount === 0) {
+        tr = tr.insert(0, wordSchema.nodes.paragraph.create())
+        cursorPos = 1
+      }
+      const sel = TextSelection.near(tr.doc.resolve(Math.min(cursorPos, tr.doc.content.size)))
+      dispatch(tr.setSelection(sel).scrollIntoView())
+    }
+    return true
+  }
+}
+
+/**
+ * Deletes the selected row(s). When the selection covers *every* row (a one-row table,
+ * or a CellSelection spanning all rows) `deleteRow` from prosemirror-tables refuses
+ * silently (no dispatch, and — the trap — its dispatch-less availability probe still
+ * returns `true`). In that exact state we remove the whole table instead, matching
+ * Word/LibreOffice. The guard mirrors the library's own refuse condition
+ * (`rect.top === 0 && rect.bottom === map.height`). See specs/tabelle-struktur-bearbeiten-req.md §2.8.
+ */
+export function deleteRowOrTable(): Command {
+  return (state, dispatch, view) => {
+    if (!isInTable(state)) return false
+    const rect = selectedRect(state)
+    const deletesAllRows = rect.top === 0 && rect.bottom === rect.map.height
+    return deletesAllRows ? deleteEnclosingTable()(state, dispatch, view) : deleteRow(state, dispatch)
+  }
+}
+
+/** Column counterpart to {@link deleteRowOrTable}; removes the whole table when the
+ * selection spans every column (`rect.left === 0 && rect.right === map.width`). */
+export function deleteColumnOrTable(): Command {
+  return (state, dispatch, view) => {
+    if (!isInTable(state)) return false
+    const rect = selectedRect(state)
+    const deletesAllColumns = rect.left === 0 && rect.right === rect.map.width
+    return deletesAllColumns ? deleteEnclosingTable()(state, dispatch, view) : deleteColumn(state, dispatch)
   }
 }
 

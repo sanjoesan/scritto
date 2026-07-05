@@ -53,11 +53,33 @@ body {
   padding: 4px 8px;
   min-width: 2em;
   vertical-align: top;
+  position: relative; /* anchor for the .selectedCell overlay below */
 }
 
 .ProseMirror th {
   background: #f3f4f6;
   font-weight: 600;
+}
+
+/*
+ * Visible cell-selection highlight. prosemirror-tables already adds the `selectedCell`
+ * class on every cell of a CellSelection but ships it unstyled — without this overlay a
+ * marked selection is invisible, so deleting a row/column would be "into the blind"
+ * (specs/tabelle-struktur-bearbeiten-req.md §1 #12). A translucent overlay keeps cell text
+ * readable and never intercepts pointer events.
+ */
+.ProseMirror .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(59, 130, 246, 0.22); /* blue-500 @ ~22% */
+  pointer-events: none;
+  z-index: 2;
+}
+@media (prefers-color-scheme: dark) {
+  .ProseMirror .selectedCell::after {
+    background: rgba(96, 165, 250, 0.3); /* blue-400 @ ~30% for dark backgrounds */
+  }
 }
 
 .ProseMirror ul,
