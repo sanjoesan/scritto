@@ -29,6 +29,23 @@ function odtCard(page: Page) {
   return page.locator('div.rounded-lg', { has: page.getByRole('heading', { name: 'OpenDocument Text (.odt)' }) })
 }
 
+/**
+ * Pin the editor to actual size (100 %) via Strg/Cmd+0 for pixel-precise steps.
+ *
+ * On the Mobile/Tablet projects the sheet is auto-fit-to-width scaled (< 1) so it fits
+ * the narrow viewport (see WordEditor.tsx + document-display.spec.ts). Under that scale a
+ * deliberately 1×1 px *test* image renders sub-pixel, which Playwright's synthetic pointer
+ * cannot reliably target. Real, real-sized images are unaffected — the browser's own
+ * hit-testing maps correctly under CSS scale (verified: elementFromPoint returns the img,
+ * posAtCoords places the caret exactly). These tests assert cut *logic*, which is
+ * viewport-independent, so we pin 100 % for the click; the responsive layout itself is
+ * covered by document-display.spec.ts. Strg+0 is handled on `window`, so it does not steal
+ * focus from the editable surface.
+ */
+async function pinActualSizeZoom(page: Page) {
+  await page.keyboard.press('ControlOrMeta+0')
+}
+
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: /verstanden/i }).click()
@@ -226,6 +243,7 @@ test('Testfall 8: Bild anklicken und mit Strg+X ausschneiden entfernt es, umgebe
   await page.locator('label:has-text("Bild")').locator('input[type=file]').setInputFiles(tinyPngPath)
 
   await expect(editor.locator('img')).toHaveCount(1)
+  await pinActualSizeZoom(page)
   await editor.locator('img').click()
   await page.keyboard.press('ControlOrMeta+x')
 
@@ -561,6 +579,7 @@ test('Rundreise 6 (Bild): Bild ausschneiden, DOCX-Export enthält keine word/med
   )
   await page.locator('label:has-text("Bild")').locator('input[type=file]').setInputFiles(tinyPngPath)
   await expect(editor.locator('img')).toHaveCount(1)
+  await pinActualSizeZoom(page)
   await editor.locator('img').click()
   await page.keyboard.press('ControlOrMeta+x')
 

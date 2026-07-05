@@ -33,7 +33,12 @@ const paginationKey = new PluginKey<DecorationSet>('pagination')
 function measureAndBuildDecorations(view: EditorView): DecorationSet {
   const dom = view.dom
   const children = Array.from(dom.children) as HTMLElement[]
-  const heights = children.map((el) => el.getBoundingClientRect().height)
+  // `offsetHeight` is the element's *layout* height in CSS px and is NOT affected
+  // by a CSS `transform: scale()` on an ancestor (unlike getBoundingClientRect,
+  // whose returned rect IS scaled). Using it keeps pagination correct under any
+  // zoom factor: we always compare the true, unscaled block heights against the
+  // unscaled page-content height. See specs/dokument-darstellung-req.md §3 (edge 4).
+  const heights = children.map((el) => el.offsetHeight)
   const breakIndices = computePageBreakIndices(heights, PAGE_CONTENT_HEIGHT_PX)
 
   if (breakIndices.length === 0) return DecorationSet.empty

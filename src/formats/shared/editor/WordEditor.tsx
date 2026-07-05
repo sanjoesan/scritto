@@ -13,7 +13,7 @@ import { cutSelection, insertHardBreak } from './commands'
 import { clipboardTextSerializer } from './clipboard'
 import { createPastePlugin } from './paste'
 import { createPaginationPlugin } from './pagination'
-import { pageBackgroundStyle, PAGE_WIDTH_PX, PAGE_MARGIN_PX } from './pageLayout'
+import { pageBackgroundStyle, PAGE_WIDTH_PX, PAGE_HEIGHT_PX, PAGE_MARGIN_PX } from './pageLayout'
 import { Toolbar } from './Toolbar'
 import type { FormatEditorProps } from '../../types'
 import type { WordDocumentContent } from '../documentModel'
@@ -63,6 +63,52 @@ function useAutoDismiss(value: string | null, setValue: (value: null) => void, m
   }, [value, setValue, ms])
 }
 
+/** Compact zoom controls shown as a status bar below the page area. */
+function ZoomBar({
+  zoom,
+  isFit,
+  onZoomOut,
+  onZoomIn,
+  onFit,
+  onActualSize,
+}: {
+  zoom: number
+  isFit: boolean
+  onZoomOut: () => void
+  onZoomIn: () => void
+  onFit: () => void
+  onActualSize: () => void
+}) {
+  // Touch targets ≥ 40px (UX-Invarianten §4 / specs/UX-INVARIANTEN.md).
+  const btn =
+    'min-w-10 min-h-10 px-2 rounded text-sm flex items-center justify-center border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300'
+  return (
+    <div className="flex items-center justify-end gap-1 border-t border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 px-2 py-1">
+      <button type="button" aria-label="Verkleinern" title="Verkleinern" onClick={onZoomOut} className={btn}>
+        −
+      </button>
+      <span aria-label="Zoomstufe" className="min-w-12 text-center text-xs tabular-nums text-neutral-600 dark:text-neutral-400">
+        {Math.round(zoom * 100)}%
+      </span>
+      <button type="button" aria-label="Vergrößern" title="Vergrößern" onClick={onZoomIn} className={btn}>
+        +
+      </button>
+      <button
+        type="button"
+        onClick={onFit}
+        aria-pressed={isFit}
+        title="An Breite anpassen"
+        className={`${btn} ${isFit ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900' : ''}`}
+      >
+        An Breite anpassen
+      </button>
+      <button type="button" onClick={onActualSize} title="Originalgröße (100%)" className={btn}>
+        100%
+      </button>
+    </div>
+  )
+}
+
 export function WordEditor({ document: doc, onChange }: FormatEditorProps<WordDocumentContent>) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
@@ -75,6 +121,68 @@ export function WordEditor({ document: doc, onChange }: FormatEditorProps<WordDo
   // Visible-but-transient feedback (never a permanent/blocking state).
   useAutoDismiss(cutError, setCutError)
   useAutoDismiss(pasteNotice, setPasteNotice)
+
+  // ---- Zoom + responsive A4 fit (specs/dokument-darstellung-req.md §2.2/2.3) ----
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const sheetRef = useRef<HTMLDivElement>(null)
+  const [availWidth, setAvailWidth] = useState(PAGE_WIDTH_PX)
+  const [sheetHeight, setSheetHeight] = useState(PAGE_HEIGHT_PX)
+  // null = auto-fit-to-width; a number = explicit user zoom (overrides auto until "Anpassen").
+  const [userZoom, setUserZoom] = useState<number | null>(null)
+
+  const ZOOM_MIN = 0.25
+  const ZOOM_MAX = 3
+  const GUTTER_PX = 24
+  const clampZoom = (z: number) => Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(z * 100) / 100))
+  // Auto-fit: a viewport narrower than one A4 sheet (phone / narrow tablet) scales the
+  // sheet down to the available width so nothing overflows horizontally; a wide viewport
+  // caps at 100% and just centres the page.
+  const fitZoom = Math.max(ZOOM_MIN, Math.min(1, (availWidth - GUTTER_PX) / PAGE_WIDTH_PX))
+  const zoom = userZoom ?? fitZoom
+
+  // Track the scroll container's available width and the sheet's natural (unscaled)
+  // height. `offsetHeight` and ResizeObserver are both transform-invariant, so the
+  // scaled footprint below reserves exactly the right space (correct scrolling +
+  // centring, no mobile overflow) regardless of the current zoom.
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const update = () => setAvailWidth(el.clientWidth)
+    update()
+    if (typeof ResizeObserver === 'undefined') return // jsdom / very old browsers
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  useEffect(() => {
+    const el = sheetRef.current
+    if (!el) return
+    const update = () => setSheetHeight(el.offsetHeight)
+    update()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  // Ctrl/Cmd +/-/0 zoom, best-effort (the editor is the only surface mounted here).
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey)) return
+      if (event.key === '=' || event.key === '+') {
+        event.preventDefault()
+        setUserZoom((z) => clampZoom((z ?? fitZoom) + 0.1))
+      } else if (event.key === '-') {
+        event.preventDefault()
+        setUserZoom((z) => clampZoom((z ?? fitZoom) - 0.1))
+      } else if (event.key === '0') {
+        event.preventDefault()
+        setUserZoom(1)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [fitZoom])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -184,18 +292,36 @@ export function WordEditor({ document: doc, onChange }: FormatEditorProps<WordDo
           {pasteNotice}
         </div>
       )}
-      <div className="flex-1 overflow-auto bg-neutral-200 dark:bg-neutral-950 flex justify-center py-8">
-        <div
-          style={{
-            width: PAGE_WIDTH_PX,
-            padding: `${PAGE_MARGIN_PX}px`,
-            ...pageBackgroundStyle(),
-          }}
-          className="shadow-lg"
-        >
-          <div ref={containerRef} className="word-editor-surface outline-none" />
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto bg-neutral-200 dark:bg-neutral-950 py-6">
+        {/* Scaled footprint: reserves the ZOOMED size so scroll + centring are correct
+            and a phone viewport never overflows horizontally (auto-fit makes this ≤ the
+            available width). `margin: 0 auto` centres it when it fits and lets it scroll
+            when zoomed larger than the viewport. */}
+        <div style={{ width: PAGE_WIDTH_PX * zoom, height: sheetHeight * zoom, margin: '0 auto' }}>
+          <div
+            ref={sheetRef}
+            data-testid="page-sheet"
+            style={{
+              width: PAGE_WIDTH_PX,
+              padding: `${PAGE_MARGIN_PX}px`,
+              transform: `scale(${zoom})`,
+              transformOrigin: 'top left',
+              ...pageBackgroundStyle(),
+            }}
+            className="shadow-lg"
+          >
+            <div ref={containerRef} className="word-editor-surface outline-none" />
+          </div>
         </div>
       </div>
+      <ZoomBar
+        zoom={zoom}
+        isFit={userZoom === null}
+        onZoomOut={() => setUserZoom(clampZoom((userZoom ?? fitZoom) - 0.1))}
+        onZoomIn={() => setUserZoom(clampZoom((userZoom ?? fitZoom) + 0.1))}
+        onFit={() => setUserZoom(null)}
+        onActualSize={() => setUserZoom(1)}
+      />
     </div>
   )
 }

@@ -20,6 +20,23 @@ function docxCard(page: Page) {
   return page.locator('div.rounded-lg', { has: page.getByRole('heading', { name: 'Word-Dokument (.docx)' }) })
 }
 
+/**
+ * Pin the editor to actual size (100 %) via Strg/Cmd+0 for pixel-precise steps.
+ *
+ * On Mobile/Tablet the sheet is auto-fit-to-width scaled (< 1) to fit the narrow viewport
+ * (WordEditor.tsx + document-display.spec.ts). Under that scale a 1×1 px *test* image
+ * renders sub-pixel (Playwright's synthetic pointer can't target it) and a synthetic drop's
+ * fixed pixel offset can land in compressed empty space where posAtCoords finds no position.
+ * Real, real-sized images and real drops onto text are unaffected — the browser maps
+ * hit-testing/`posAtCoords` correctly under CSS scale (verified). These tests assert
+ * paste/drop *logic* (viewport-independent), so we pin 100 % for the pixel-precise step;
+ * the responsive layout itself is covered by document-display.spec.ts. Strg+0 is handled on
+ * `window`, so it keeps the editor focused.
+ */
+async function pinActualSizeZoom(page: Page) {
+  await page.keyboard.press('ControlOrMeta+0')
+}
+
 test.beforeEach(async ({ page, browserName }) => {
   // Firefox ignores the `clipboardData` init of a synthetically-constructed-and-
   // dispatched ClipboardEvent (there it is read-only null), so the deterministic
@@ -353,6 +370,7 @@ async function drop(page: Page, data: { html?: string; uriList?: string; text?: 
 
 test('1 #6: dropping HTML inserts its content, no crash', async ({ page, browserName }) => {
   test.skip(browserName !== 'chromium', 'Synthetic DragEvent dataTransfer is only reliable in Chromium.')
+  await pinActualSizeZoom(page)
   await page.keyboard.type('vorhanden ')
   await drop(page, { html: '<p><strong>Abgelegt</strong></p>' })
   // the dropped content is inserted (with its bold formatting) at the drop point,
@@ -364,6 +382,7 @@ test('1 #6: dropping HTML inserts its content, no crash', async ({ page, browser
 
 test('Grenzfall 22: dropping only a URI list inserts it as visible text', async ({ page, browserName }) => {
   test.skip(browserName !== 'chromium', 'Synthetic DragEvent dataTransfer is only reliable in Chromium.')
+  await pinActualSizeZoom(page)
   await drop(page, { uriList: 'https://example.test/bild.png' })
   await expect(editor(page)).toContainText('https://example.test/bild.png')
 })
@@ -449,6 +468,7 @@ test('Grenzfall 24: pasting while an image node is selected replaces the image',
   const tiny = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
   await paste(page, { html: `<p><img src="${tiny}" alt="X"></p>` })
   await expect(editor(page).locator('img')).toHaveCount(1)
+  await pinActualSizeZoom(page)
   await editor(page).locator('img').click() // node-select the image
   await paste(page, { text: 'Ersatz' })
   await expect(editor(page).locator('img')).toHaveCount(0)

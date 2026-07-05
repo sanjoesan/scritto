@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { readDocx } from '../reader'
+import { assertLoadableDocument } from '../../shared/validateDocument'
 
 const FIXTURES_DIR = join(__dirname, '../../../../tests/fixtures/external/docx')
 
@@ -101,6 +102,10 @@ describe('DOCX reader vs. real-world fixtures (apache/poi test-data)', () => {
           const paragraphCount = (doc.body as { content?: unknown[] }).content?.length ?? 0
           results.push({ name, ok: true, paragraphCount })
           expect(doc.body).toBeTruthy()
+          // dokument-darstellung-req.md §4.2: every importable fixture must yield a
+          // mountable, schema-valid editor document (not just a non-null body), so a
+          // schema-incompatible doc can never white-screen the editor at mount time.
+          expect(() => assertLoadableDocument(doc)).not.toThrow()
         } catch (err) {
           results.push({ name, ok: false, error: err instanceof Error ? err.message : String(err) })
           throw err
