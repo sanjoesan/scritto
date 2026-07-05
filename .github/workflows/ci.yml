@@ -45,6 +45,17 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     needs: test
     runs-on: ubuntu-latest
+    # Serialise Pages deployments so two pushes in quick succession (this repo deploys after
+    # every feature) can't race the single Pages deployment and fail with the GitHub Pages
+    # "Deployment failed, try again later." error. Scoped to the deploy job only, so parallel
+    # test runs are unaffected. Do NOT cancel-in-progress: a half-finished Pages deploy that
+    # gets cancelled can leave the environment wedged; let each deploy finish.
+    # NOTE: re-running only this job via `gh run rerun --failed` uploads a SECOND
+    # `github-pages` artifact and then deploy-pages@v4 aborts with "Multiple artifacts named
+    # github-pages". To retry a failed deploy, push a new commit (fresh run) instead.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     permissions:
       pages: write
       id-token: write
