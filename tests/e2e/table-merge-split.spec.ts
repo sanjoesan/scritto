@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import JSZip from 'jszip'
+import { insertTableViaDialog } from './fixtures/table-helpers'
 
 // Cell merge / split (specs/zellen-verbinden-req.md). Runs on Desktop Chrome, Mobile
 // (Pixel 7) and Tablet (iPad Mini). Multi-cell selection is done via page.mouse drag; the
@@ -19,7 +20,7 @@ async function openEditorWithTable(page: Page) {
   await odtCard(page).getByRole('button', { name: 'Neu erstellen' }).click()
   await expect(page.locator('.ProseMirror')).toBeVisible()
   await page.locator('.ProseMirror').click()
-  await page.getByRole('button', { name: 'Tabelle einfügen' }).click()
+  await insertTableViaDialog(page, 2, 2)
   await expect(page.locator('.ProseMirror table')).toHaveCount(1)
 }
 

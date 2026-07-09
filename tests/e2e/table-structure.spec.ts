@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
+import { insertTableViaDialog } from './fixtures/table-helpers'
 
 // Table-structure editing: insert/delete row & column as one toolbar block.
 // See specs/tabelle-struktur-bearbeiten-req.md. Runs on Desktop Chrome, Mobile
@@ -25,7 +26,7 @@ async function openEditor(page: Page) {
 /** Inserts the default 2×2 table and puts the cursor in its first cell. */
 async function insertTableAndFocusCell(page: Page) {
   await page.locator('.ProseMirror').click()
-  await page.getByRole('button', { name: 'Tabelle einfügen' }).click()
+  await insertTableViaDialog(page, 2, 2)
   await expect(tables(page)).toHaveCount(1)
   await page.locator('.ProseMirror td').first().click()
 }

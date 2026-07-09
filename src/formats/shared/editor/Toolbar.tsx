@@ -10,14 +10,15 @@ import {
   addRowBefore,
   applyMarkColor,
   canCut,
+  canDeleteTable,
   canMergeCells,
   canSplitCell,
   clearMarkColor,
   cutSelection,
   deleteColumnOrTable,
   deleteRowOrTable,
+  deleteTableAtSelection,
   insertImage,
-  insertTable,
   isAlignActive,
   isInTable,
   liftFromList,
@@ -33,6 +34,8 @@ interface ToolbarProps {
   view: EditorView
   cutError: string | null
   setCutError: (message: string | null) => void
+  /** Opens the table-size chooser (replaces the old fixed 2×2 insert). */
+  onOpenTableDialog: () => void
 }
 
 function run(view: EditorView, command: Command) {
@@ -197,6 +200,17 @@ const IconColDelete = (
     <path d="M10.6 9.6l3.3 4.8M13.9 9.6l-3.3 4.8" />
   </TableIcon>
 )
+// "Delete whole table" — a full table (outline + internal grid lines) struck through by a
+// bold X spanning the ENTIRE table corner-to-corner, so it reads as "remove the table" and is
+// clearly distinct from the row/column deletes (whose X sits over a single band). req §1 #6.
+const IconTableDelete = (
+  <TableIcon>
+    <rect x="3" y="4" width="18" height="16" rx="1.5" />
+    <line x1="3" y1="12" x2="21" y2="12" />
+    <line x1="12" y1="4" x2="12" y2="20" />
+    <path d="M4.5 5.5l15 13M19.5 5.5l-15 13" />
+  </TableIcon>
+)
 // Merge = two arrows pointing inward (no divider); Split = a centre divider with two arrows
 // pointing outward — opposites, distinguishable without the tooltip (req §1 #1/#2).
 const IconMergeCells = (
@@ -260,7 +274,7 @@ function TableOpButton({
   )
 }
 
-export function Toolbar({ view, cutError, setCutError }: ToolbarProps) {
+export function Toolbar({ view, cutError, setCutError, onOpenTableDialog }: ToolbarProps) {
   function currentHeadingLevel(): string {
     const { $from } = view.state.selection
     for (let depth = $from.depth; depth >= 0; depth--) {
@@ -424,19 +438,32 @@ export function Toolbar({ view, cutError, setCutError }: ToolbarProps) {
 
       <div className="w-px h-5 bg-neutral-300 dark:bg-neutral-700 mx-1" />
 
+      {/* Opens the size chooser instead of inserting a fixed 2×2 (req §1 #1). onMouseDown
+          preventDefault preserves the editor selection for the later insert; onClick fires for
+          mouse, Enter AND Space — closing the long-standing Enter gap of the old mousedown-only
+          button (req §0.1 / §2.15). */}
       <button
         type="button"
         title="Tabelle einfügen"
         aria-label="Tabelle einfügen"
-        aria-pressed={isInTable(view.state)}
-        onMouseDown={(e) => {
-          e.preventDefault()
-          run(view, insertTable(2, 2))
-        }}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={onOpenTableDialog}
         className="px-2 py-1 rounded text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300"
       >
         ⊞ Tabelle
       </button>
+
+      {/* Tabelle löschen (specs/tabelle-erstellen-loeschen-req.md §2.8/§2.9): enabled whenever a
+          table is affected — cursor inside one OR the whole table selected as a NodeSelection
+          (the Backspace-after-table state that isInTable alone misses). */}
+      <TableOpButton
+        view={view}
+        command={deleteTableAtSelection()}
+        label="Tabelle löschen"
+        isEnabled={canDeleteTable}
+      >
+        {IconTableDelete}
+      </TableOpButton>
 
       {/* Tabellenstruktur bearbeiten (specs/tabelle-struktur-bearbeiten-req.md): one
           contiguous block, all six disabled outside a table. */}

@@ -31,14 +31,27 @@ export function computePageCount(heights: number[], pageContentHeight: number): 
 const paginationKey = new PluginKey<DecorationSet>('pagination')
 
 function measureAndBuildDecorations(view: EditorView): DecorationSet {
-  const dom = view.dom
-  const children = Array.from(dom.children) as HTMLElement[]
+  // Measure each top-level doc node's rendered block element via `nodeDOM` — NOT via
+  // `view.dom.children`: that child list also contains widget decorations, above all our
+  // own page-break spacers. Measuring those polluted the heights (a 220px spacer counted
+  // as "content") AND shifted the indices, so every pass computed different breaks than
+  // the pass before. Visible symptom: multi-page documents (e.g. BigTable.odt) "jumped"
+  // endlessly at ~2Hz — the sheet height flip-flopped by PAGE_GAP_PX and click targets
+  // never settled. Measuring only real doc blocks makes one pass converge.
+  //
   // `offsetHeight` is the element's *layout* height in CSS px and is NOT affected
   // by a CSS `transform: scale()` on an ancestor (unlike getBoundingClientRect,
   // whose returned rect IS scaled). Using it keeps pagination correct under any
   // zoom factor: we always compare the true, unscaled block heights against the
   // unscaled page-content height. See specs/dokument-darstellung-req.md §3 (edge 4).
-  const heights = children.map((el) => el.offsetHeight)
+  const heights: number[] = []
+  view.state.doc.forEach((_node, offset) => {
+    let el: Node | null = view.nodeDOM(offset)
+    // Walk up to the element that actually sits in the top-level block flow (tables are
+    // wrapped in a `.tableWrapper` div by prosemirror-tables).
+    while (el && el.parentNode && el.parentNode !== view.dom) el = el.parentNode
+    heights.push(el instanceof HTMLElement ? el.offsetHeight : 0)
+  })
   const breakIndices = computePageBreakIndices(heights, PAGE_CONTENT_HEIGHT_PX)
 
   if (breakIndices.length === 0) return DecorationSet.empty

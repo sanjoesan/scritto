@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import JSZip from 'jszip'
+import { insertTableViaDialog } from './fixtures/table-helpers'
 
 // Dedicated paste (Einfügen) E2E suite. The file name MUST start with
 // "clipboard" so playwright.config.ts's `testMatch: /clipboard.*\.spec\.ts/`
@@ -328,7 +329,7 @@ test('3.6: multi-block paste inside a list item does not break the list apart', 
 })
 
 test('3.6: paste inside a table cell stays in the cell, table structure intact', async ({ page }) => {
-  await page.getByRole('button', { name: 'Tabelle einfügen' }).click()
+  await insertTableViaDialog(page, 2, 2)
   const cells = editor(page).locator('td')
   await cells.nth(0).click()
   await paste(page, { html: '<p>ZellInhalt</p>' })

@@ -193,29 +193,82 @@ export function insertTable(rows: number, cols: number): Command {
 }
 
 /**
- * Removes the entire table enclosing the current selection, then places the cursor in
- * a sensible spot next to where it stood. If the table was the only block in the
- * document, an empty paragraph is inserted so the schema's `content: 'block+'` invariant
- * holds and the editor stays usable. Undo restores the whole table in one step.
+ * Deletes the table node spanning `[tablePos, tablePos + tableNode.nodeSize)` and leaves the
+ * cursor at a sensible spot. If the table was the only block, an empty paragraph is inserted
+ * so the schema's `content: 'block+'` invariant holds and the editor stays usable. One
+ * transaction = one undo step. Shared by every "remove the whole table" path so they behave
+ * bit-identically regardless of which selection state triggered them.
  */
-function deleteEnclosingTable(): Command {
+function dispatchTableRemoval(
+  state: EditorState,
+  dispatch: (tr: Transaction) => void,
+  tablePos: number,
+  tableNode: PMNode,
+) {
+  let tr = state.tr.delete(tablePos, tablePos + tableNode.nodeSize)
+  let cursorPos = tablePos
+  if (tr.doc.childCount === 0) {
+    tr = tr.insert(0, wordSchema.nodes.paragraph.create())
+    cursorPos = 1
+  }
+  const sel = TextSelection.near(tr.doc.resolve(Math.min(cursorPos, tr.doc.content.size)))
+  dispatch(tr.setSelection(sel).scrollIntoView())
+}
+
+/**
+ * Removes the entire table enclosing the current selection (a cursor or a CellSelection
+ * inside it). Undo restores the whole table in one step. Exported so the "Tabelle löschen"
+ * toolbar button can reach it directly (via {@link deleteTableAtSelection}); it is also the
+ * shared path the "last row/column removes the table" behaviour uses (deleteRowOrTable /
+ * deleteColumnOrTable). See specs/tabelle-erstellen-loeschen-req.md §2.8.
+ */
+export function deleteEnclosingTable(): Command {
   return (state, dispatch) => {
     if (!isInTable(state)) return false
     const rect = selectedRect(state)
     const tablePos = rect.tableStart - 1
     const tableNode = state.doc.nodeAt(tablePos)
     if (!tableNode || tableNode.type.name !== 'table') return false
-    if (dispatch) {
-      let tr = state.tr.delete(tablePos, tablePos + tableNode.nodeSize)
-      let cursorPos = tablePos
-      if (tr.doc.childCount === 0) {
-        tr = tr.insert(0, wordSchema.nodes.paragraph.create())
-        cursorPos = 1
-      }
-      const sel = TextSelection.near(tr.doc.resolve(Math.min(cursorPos, tr.doc.content.size)))
-      dispatch(tr.setSelection(sel).scrollIntoView())
-    }
+    if (dispatch) dispatchTableRemoval(state, dispatch, tablePos, tableNode)
     return true
+  }
+}
+
+/**
+ * True when "Tabelle löschen" can act: either the cursor is inside a table (the ordinary case,
+ * `isInTable`) OR the whole table is selected as a `NodeSelection` — the state a Backspace at
+ * the start of the paragraph right after a table produces via baseKeymap. `isInTable` does NOT
+ * recognise that NodeSelection (it climbs the ancestors of `$head` looking for a table row, but
+ * the selected table sits at the position and is not an ancestor), so gating the button on
+ * `isInTable` alone would wrongly disable it in that everyday state. See
+ * specs/tabelle-erstellen-loeschen-req.md §2.9 (the central, non-negotiable acceptance point).
+ */
+export function canDeleteTable(state: EditorState): boolean {
+  const sel = state.selection
+  if (sel instanceof NodeSelection && sel.node.type.name === 'table') return true
+  return isInTable(state)
+}
+
+/**
+ * Removes the whole table the selection refers to, covering both entry states with one
+ * user-visible result:
+ *  - a `NodeSelection` on the table itself → delete that node directly from `sel.from`. We must
+ *    NOT fall through to {@link deleteEnclosingTable} here: it calls `selectedRect()` →
+ *    `selectionCell()`, which throw a `RangeError` for a table NodeSelection (there is no cell
+ *    around the position). The node and its position are already known from the selection.
+ *  - a cursor / CellSelection inside a table → {@link deleteEnclosingTable} (the shared path the
+ *    row/column deletes already use), so an empty selection outside any table returns `false`
+ *    and the button stays inert.
+ * One transaction = one undo step. See specs/tabelle-erstellen-loeschen-req.md §2.8/§2.9.
+ */
+export function deleteTableAtSelection(): Command {
+  return (state, dispatch, view) => {
+    const sel = state.selection
+    if (sel instanceof NodeSelection && sel.node.type.name === 'table') {
+      if (dispatch) dispatchTableRemoval(state, dispatch, sel.from, sel.node)
+      return true
+    }
+    return deleteEnclosingTable()(state, dispatch, view)
   }
 }
 

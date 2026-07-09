@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { insertTableViaDialog } from './fixtures/table-helpers'
 
 // Document base display: real A4 page view, zoom, and — critically — mobile
 // responsiveness with no horizontal overflow. See specs/dokument-darstellung-req.md.
@@ -104,7 +105,7 @@ test.describe('Mobile responsiveness (no horizontal overflow)', () => {
 
   test('a wide table does not break the layout out horizontally', async ({ page }) => {
     await page.locator('.ProseMirror').click()
-    await page.getByRole('button', { name: 'Tabelle einfügen' }).click()
+    await insertTableViaDialog(page, 2, 2)
     expect(await noHorizontalOverflow(page)).toBe(true)
   })
 })

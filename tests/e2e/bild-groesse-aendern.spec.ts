@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import JSZip from 'jszip'
+import { insertTableViaDialog } from './fixtures/table-helpers'
 
 // Image resize (specs/bild-groesse-aendern-req.md). Runs on Desktop Chrome, Mobile, Tablet.
 // After insertion the image is already node-selected, so the size panel is visible. A 1x1
@@ -211,7 +212,7 @@ test.describe('Bildgröße ändern', () => {
     await page.getByRole('button', { name: /verstanden/i }).click()
     await odtCard(page).getByRole('button', { name: 'Neu erstellen' }).click()
     await page.locator('.ProseMirror').click()
-    await page.getByRole('button', { name: 'Tabelle einfügen' }).click()
+    await insertTableViaDialog(page, 2, 2)
     await page.locator('.ProseMirror td').first().click()
     await page.locator('label:has-text("Bild")').locator('input[type=file]').setInputFiles({
       name: 'cell.png',

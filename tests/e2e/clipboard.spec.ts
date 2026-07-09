@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { insertTableViaDialog } from './fixtures/table-helpers'
 
 // ESM module, no CommonJS __dirname — same workaround as the other e2e specs
 // that read local fixture files (large-document-import.spec.ts, cut.spec.ts, ...).
@@ -208,7 +209,7 @@ test('Testfall (3/2), Entscheidung 2.3: Kopieren ganzer Tabellenzellen erzeugt b
   test.skip(browserName === 'webkit', SKIP_WEBKIT_ROUNDTRIP)
   const editor = page.locator('.ProseMirror')
   await editor.click()
-  await page.getByRole('button', { name: 'Tabelle einfügen' }).click()
+  await insertTableViaDialog(page, 2, 2)
   const cells = editor.locator('td')
   await cells.nth(0).click()
   await page.keyboard.type('A')
@@ -246,7 +247,7 @@ test('Testfall (3/2), Entscheidung 2.3 Gegenprobe: reine Textauswahl innerhalb e
   test.skip(browserName === 'webkit', SKIP_WEBKIT_ROUNDTRIP)
   const editor = page.locator('.ProseMirror')
   await editor.click()
-  await page.getByRole('button', { name: 'Tabelle einfügen' }).click()
+  await insertTableViaDialog(page, 2, 2)
   const cells = editor.locator('td')
   await cells.nth(0).click()
   await page.keyboard.type('Nur Text')
@@ -387,7 +388,7 @@ test('Abschnitt 6/6: Tabelle als text/plain eingefügt zeigt Tab-getrennte Zelle
   test.skip(browserName !== 'chromium', 'navigator.clipboard.readText aus page.evaluate ist nur unter Chromium zuverlässig steuerbar (Entscheidung 2.2).')
   const editor = page.locator('.ProseMirror')
   await editor.click()
-  await page.getByRole('button', { name: 'Tabelle einfügen' }).click()
+  await insertTableViaDialog(page, 2, 2)
   const cells = editor.locator('td')
   await cells.nth(0).click()
   await page.keyboard.type('A1')
@@ -423,7 +424,7 @@ test('T-14a: Tabelle als text/plain in ein unabhängiges natives <textarea> eing
 
   const editor = page.locator('.ProseMirror')
   await editor.click()
-  await page.getByRole('button', { name: 'Tabelle einfügen' }).click()
+  await insertTableViaDialog(page, 2, 2)
   const cells = editor.locator('td')
   await cells.nth(0).click()
   await page.keyboard.type('A1')

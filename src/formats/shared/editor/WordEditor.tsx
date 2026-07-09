@@ -9,12 +9,13 @@ import { tableEditing, columnResizing } from 'prosemirror-tables'
 import { dropCursor } from 'prosemirror-dropcursor'
 import { gapCursor } from 'prosemirror-gapcursor'
 import { wordSchema } from '../schema'
-import { cutSelection, insertHardBreak, selectedImage } from './commands'
+import { cutSelection, insertHardBreak, insertTable, selectedImage } from './commands'
 import { clipboardTextSerializer } from './clipboard'
 import { createPastePlugin } from './paste'
 import { createPaginationPlugin } from './pagination'
 import { pageBackgroundStyle, PAGE_WIDTH_PX, PAGE_HEIGHT_PX, PAGE_MARGIN_PX } from './pageLayout'
 import { Toolbar } from './Toolbar'
+import { TableSizeDialog } from './TableSizeDialog'
 import { ImageResizeNodeView } from './imageNodeView'
 import { ImageSizePanel } from './ImageSizePanel'
 import type { FormatEditorProps } from '../../types'
@@ -119,6 +120,10 @@ export function WordEditor({ document: doc, onChange }: FormatEditorProps<WordDo
   const [, forceRender] = useState(0)
   const [cutError, setCutError] = useState<string | null>(null)
   const [pasteNotice, setPasteNotice] = useState<string | null>(null)
+  // The table-size chooser (replaces the old fixed 2×2 insert). While it is open its full-screen
+  // backdrop intercepts editor clicks, so the ProseMirror selection captured when the button was
+  // pressed (onMouseDown preventDefault) stays put until "Einfügen" runs — no separate save/restore.
+  const [tableDialogOpen, setTableDialogOpen] = useState(false)
 
   // Visible-but-transient feedback (never a permanent/blocking state).
   useAutoDismiss(cutError, setCutError)
@@ -344,7 +349,27 @@ export function WordEditor({ document: doc, onChange }: FormatEditorProps<WordDo
   const activeView = viewRef.current
   return (
     <div className="flex flex-col h-full">
-      {activeView && <Toolbar view={activeView} cutError={cutError} setCutError={setCutError} />}
+      {activeView && (
+        <Toolbar
+          view={activeView}
+          cutError={cutError}
+          setCutError={setCutError}
+          onOpenTableDialog={() => setTableDialogOpen(true)}
+        />
+      )}
+      {activeView && tableDialogOpen && (
+        <TableSizeDialog
+          onInsert={(rows, cols) => {
+            setTableDialogOpen(false)
+            insertTable(rows, cols)(activeView.state, activeView.dispatch, activeView)
+            activeView.focus() // return focus to the editor after inserting (§2.1)
+          }}
+          onClose={() => {
+            setTableDialogOpen(false)
+            activeView.focus() // return focus to the editor on cancel/escape/outside (§2.1)
+          }}
+        />
+      )}
       {activeView && selectedImage(activeView.state) && <ImageSizePanel view={activeView} liveSize={liveImageSize} />}
       {pasteNotice && (
         <div

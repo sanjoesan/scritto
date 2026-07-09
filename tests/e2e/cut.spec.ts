@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 // rather than duplicated into a second fixtures/buildSampleDocuments.ts, per
 // specs/ausschneiden-qa.md §2.1's own goal of "auslagern statt duplizieren".
 import { buildSampleOdt } from './fixtures/builders'
+import { insertTableViaDialog } from './fixtures/table-helpers'
 
 // This test file is loaded as ESM (see playwright.config.ts / package.json
 // "type": "module"), where CommonJS's __dirname is not defined — resolved the
@@ -175,7 +176,7 @@ test('Testfall 6: Ausschneiden innerhalb einer Tabellenzelle entfernt nur den Ze
   await odtCard(page).getByRole('button', { name: 'Neu erstellen' }).click()
   const editor = page.locator('.ProseMirror')
   await editor.click()
-  await page.getByRole('button', { name: 'Tabelle einfügen' }).click()
+  await insertTableViaDialog(page, 2, 2)
 
   const cells = page.locator('.ProseMirror td')
   await cells.nth(0).click()
@@ -203,7 +204,7 @@ test('Testfall 7: Ausschneiden über mehrere per Maus-Drag markierte Zellen leer
   await odtCard(page).getByRole('button', { name: 'Neu erstellen' }).click()
   const editor = page.locator('.ProseMirror')
   await editor.click()
-  await page.getByRole('button', { name: 'Tabelle einfügen' }).click()
+  await insertTableViaDialog(page, 2, 2)
 
   const cells = page.locator('.ProseMirror td')
   await cells.nth(0).click()
@@ -412,7 +413,7 @@ test('Grenzfall 17: Ausschneiden der einzigen nicht-leeren Zelle lässt eine gü
   await odtCard(page).getByRole('button', { name: 'Neu erstellen' }).click()
   const editor = page.locator('.ProseMirror')
   await editor.click()
-  await page.getByRole('button', { name: 'Tabelle einfügen' }).click()
+  await insertTableViaDialog(page, 2, 2)
   const cells = page.locator('.ProseMirror td')
   await cells.nth(0).click()
   await page.keyboard.type('Einziger Inhalt')

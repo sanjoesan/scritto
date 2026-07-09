@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { insertTableViaDialog } from './fixtures/table-helpers'
 
 function odtCard(page: import('@playwright/test').Page) {
   return page.locator('div.rounded-lg', { has: page.getByRole('heading', { name: 'OpenDocument Text (.odt)' }) })
@@ -43,7 +44,7 @@ test.describe('Selection-sync regression (stale AllSelection after toolbar actio
   test('same regression inside a table cell (click between cells after formatting)', async ({ page }) => {
     const editor = page.locator('.ProseMirror')
     await editor.click()
-    await page.getByRole('button', { name: 'Tabelle einfügen' }).click()
+    await insertTableViaDialog(page, 2, 2)
 
     const cells = page.locator('.ProseMirror td')
     await cells.nth(0).click()
