@@ -679,8 +679,11 @@ Der **Writer** behält vorgabegemäß sein statisches Schema (§5A Option B).
   Ebene) kollabieren beim DOCX-Export weiterhin in die numId der äußersten Liste —
   gemäß §5A **Option B** die verbindliche Vorgabe dieser Datei (Option A = Lead/PO-
   Entscheidung, verortet in `mehrstufige-liste`); ODT nicht betroffen.
-- **(c) `%N`-Fehlreferenz** in der zyklischen Nummerierungsdefinition ab Ebene ≥ 4 —
-  unverändert.
+- ~~**(c) `%N`-Fehlreferenz**~~ **BEHOBEN (gleicher Abend):** jede nummerierte Ebene
+  referenziert jetzt den eigenen Zähler (`%{ilvl+1}.`), trägt `w:start`/`w:lvlJc` und
+  den Word-üblichen Einzug je Ebene (`w:ind` 720 Twips/Ebene, 360 hängend) — damit ist
+  auch die per-Ebene-Einrückung in Word/LibreOffice sichtbar (Befund C Zeile 5 Punkte
+  a+b; Unit-Tests in `styleDefs.test.ts`).
 - **(d) DOCX-Import bildreiner Listenpunkte** — unverändert (vorbestehend).
 - **ODT-Darstellung ab `text:level="2"`** (Befund C/4.10): Stildefinitionen weiterhin
   nur für Ebene 1; die Rundreise-STRUKTUR ist unberührt (E2E-belegt), nur die optische

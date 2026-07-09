@@ -39,25 +39,36 @@ export const ORDERED_NUM_ID = 2
 // abstract numbering definitions so an exported nested list has an actual level
 // definition to point to instead of relying on a reader's/Word's fallback for
 // undefined levels. Bullet glyphs cycle through the three Word normally uses;
-// ordered levels cycle decimal/lowerLetter/lowerRoman, the conventional Word default.
+// ordered FORMATS cycle decimal/lowerLetter/lowerRoman (the conventional Word default),
+// but each level's `w:lvlText` references its OWN counter `%{ilvl+1}` — the previous
+// cyclic `%1./%2./%3.` made ilvl ≥ 3 display a SHALLOWER level's counter (the "%N-
+// Fehlreferenz", liste-einruecken-tab-req.md Befund C). Every level also carries
+// `w:start`, `w:lvlJc` and the Word-default indent (720 twips per level, 360 hanging),
+// so nested levels are visibly indented in Word/LibreOffice instead of only
+// distinguishable by their glyph.
 const BULLET_GLYPHS = ['•', '◦', '▪']
-const ORDERED_FORMATS: Array<{ fmt: string; text: string }> = [
-  { fmt: 'decimal', text: '%1.' },
-  { fmt: 'lowerLetter', text: '%2.' },
-  { fmt: 'lowerRoman', text: '%3.' },
-]
+const ORDERED_FORMATS = ['decimal', 'lowerLetter', 'lowerRoman']
+
+function levelIndentXml(ilvl: number): string {
+  return `<w:pPr><w:ind w:left="${720 * (ilvl + 1)}" w:hanging="360"/></w:pPr>`
+}
 
 function bulletLevelsXml(): string {
   return Array.from(
     { length: 9 },
-    (_, ilvl) => `<w:lvl w:ilvl="${ilvl}"><w:numFmt w:val="bullet"/><w:lvlText w:val="${BULLET_GLYPHS[ilvl % BULLET_GLYPHS.length]}"/></w:lvl>`,
+    (_, ilvl) =>
+      `<w:lvl w:ilvl="${ilvl}"><w:start w:val="1"/><w:numFmt w:val="bullet"/>` +
+      `<w:lvlText w:val="${BULLET_GLYPHS[ilvl % BULLET_GLYPHS.length]}"/><w:lvlJc w:val="left"/>${levelIndentXml(ilvl)}</w:lvl>`,
   ).join('')
 }
 
 function orderedLevelsXml(): string {
   return Array.from({ length: 9 }, (_, ilvl) => {
-    const { fmt, text } = ORDERED_FORMATS[ilvl % ORDERED_FORMATS.length]
-    return `<w:lvl w:ilvl="${ilvl}"><w:numFmt w:val="${fmt}"/><w:lvlText w:val="${text}"/></w:lvl>`
+    const fmt = ORDERED_FORMATS[ilvl % ORDERED_FORMATS.length]
+    return (
+      `<w:lvl w:ilvl="${ilvl}"><w:start w:val="1"/><w:numFmt w:val="${fmt}"/>` +
+      `<w:lvlText w:val="%${ilvl + 1}."/><w:lvlJc w:val="left"/>${levelIndentXml(ilvl)}</w:lvl>`
+    )
   }).join('')
 }
 
