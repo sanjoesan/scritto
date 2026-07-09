@@ -1,7 +1,7 @@
 import type { Command, EditorState, Transaction } from 'prosemirror-state'
 import { TextSelection, NodeSelection } from 'prosemirror-state'
 import type { Node as PMNode, MarkType } from 'prosemirror-model'
-import { wrapInList, liftListItem } from 'prosemirror-schema-list'
+import { wrapInList, liftListItem, sinkListItem } from 'prosemirror-schema-list'
 import {
   isInTable,
   addRowBefore,
@@ -140,6 +140,44 @@ export function liftFromList(): Command {
   return liftListItem(wordSchema.nodes.list_item)
 }
 
+/** True when the selection sits inside a list_item at any depth (also lists in table
+ * cells) — the "Listenkontext" that decides whether Tab/Shift+Tab change the list level
+ * or fall through (specs/liste-einruecken-tab-req.md §2 #1/#2/#5). */
+export function isInListItem(state: EditorState): boolean {
+  const { $from } = state.selection
+  for (let depth = $from.depth; depth > 0; depth--) {
+    if ($from.node(depth).type === wordSchema.nodes.list_item) return true
+  }
+  return false
+}
+
+/**
+ * Tab in a list: nest the selected item(s) one level deeper under the previous sibling
+ * (`sinkListItem`). Inside a list the key is ALWAYS consumed — even when sinking is
+ * impossible (very first item, req §3.2): a visible no-op, but never a focus jump out
+ * of the editor, and since sinkListItem doesn't dispatch then, no empty undo step
+ * either (§3.8). Outside a list: `false`, the key falls through untouched (§2 #5 —
+ * the plain-paragraph Tab behaviour is the separate `tabulator-zeichen` backlog item).
+ */
+export function indentListItem(): Command {
+  return (state, dispatch, view) => {
+    if (!isInListItem(state)) return false
+    sinkListItem(wordSchema.nodes.list_item)(state, dispatch, view)
+    return true
+  }
+}
+
+/** Shift+Tab in a list: one level up; a top-level item leaves the list entirely —
+ * identical to the "Liste aufheben" button (same liftListItem, req §3.5/§3.6). Same
+ * consume semantics as indentListItem. */
+export function outdentListItem(): Command {
+  return (state, dispatch, view) => {
+    if (!isInListItem(state)) return false
+    liftListItem(wordSchema.nodes.list_item)(state, dispatch, view)
+    return true
+  }
+}
+
 export function insertImage(src: string, alt = ''): Command {
   return (state, dispatch) => {
     const node = wordSchema.nodes.image.create({ src, alt })
@@ -256,15 +294,7 @@ export function insertHardBreak(): Command {
  */
 export function insertPageBreak(onBlocked?: (message: string) => void): Command {
   return (state, dispatch) => {
-    const { $from } = state.selection
-    let inList = false
-    for (let depth = $from.depth; depth > 0; depth--) {
-      if ($from.node(depth).type === wordSchema.nodes.list_item) {
-        inList = true
-        break
-      }
-    }
-    if (isInTable(state) || inList) {
+    if (isInTable(state) || isInListItem(state)) {
       if (dispatch) {
         dispatch(state.tr.replaceSelectionWith(wordSchema.nodes.hard_break.create()).scrollIntoView())
         onBlocked?.(

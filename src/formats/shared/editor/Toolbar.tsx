@@ -19,9 +19,11 @@ import {
   deleteColumnOrTable,
   deleteRowOrTable,
   deleteTableAtSelection,
+  indentListItem,
   insertImage,
   insertPageBreak,
   isAlignActive,
+  isInListItem,
   isInTable,
   isListActive,
   isMarkActive,
@@ -463,9 +465,24 @@ export function Toolbar({ view, cutError, setCutError, onOpenTableDialog, onNoti
 
       <ListButton view={view} ordered={false} title="Aufzählung" label="• Liste" />
       <ListButton view={view} ordered={true} title="Nummerierte Liste" label="1. Liste" />
+      {/* Maus-/Touch-/Screenreader-Alternative zu Tab (liste-einruecken-tab-req.md §2 #4):
+          das Abfangen von Tab im Listenkontext nimmt der Tastatur dort den Fokus-Fluchtweg —
+          dieser Button (und Umschalt+Tab-Pendant unten) hält die Funktion zugänglich.
+          Außerhalb einer Liste deaktiviert statt stiller No-Op. */}
       <button
         type="button"
-        title="Liste aufheben"
+        title="Einzug erhöhen (Tab)"
+        aria-label="Einzug erhöhen"
+        disabled={!isInListItem(view.state)}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => run(view, indentListItem())}
+        className="px-2 py-1 rounded text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300 disabled:opacity-40 disabled:hover:bg-transparent"
+      >
+        → Liste
+      </button>
+      <button
+        type="button"
+        title="Liste aufheben / Einzug verringern (Umschalt+Tab)"
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => run(view, liftFromList())}
         className="px-2 py-1 rounded text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300"

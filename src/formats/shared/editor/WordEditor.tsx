@@ -9,7 +9,15 @@ import { tableEditing, columnResizing } from 'prosemirror-tables'
 import { dropCursor } from 'prosemirror-dropcursor'
 import { gapCursor, GapCursor } from 'prosemirror-gapcursor'
 import { wordSchema } from '../schema'
-import { cutSelection, insertHardBreak, insertPageBreak, insertTable, selectedImage } from './commands'
+import {
+  cutSelection,
+  indentListItem,
+  insertHardBreak,
+  insertPageBreak,
+  insertTable,
+  outdentListItem,
+  selectedImage,
+} from './commands'
 import { clipboardTextSerializer } from './clipboard'
 import { createPastePlugin } from './paste'
 import { createPaginationPlugin } from './pagination'
@@ -259,6 +267,12 @@ export function WordEditor({ document: doc, onChange }: FormatEditorProps<WordDo
           'Mod-y': redo,
           'Mod-Shift-z': redo,
           Enter: splitListItem(wordSchema.nodes.list_item),
+          // Tab/Umschalt+Tab ändern im LISTENkontext die Ebene und werden dort immer
+          // konsumiert (auch als sichtbarer No-Op beim ersten Punkt — kein Fokus-Sprung
+          // aus dem Editor); außerhalb von Listen reichen beide durch
+          // (liste-einruecken-tab-req.md §2/§3.1–3.6).
+          Tab: indentListItem(),
+          'Shift-Tab': outdentListItem(),
           'Shift-Enter': insertHardBreak(),
           // Strg/Cmd+Enter = manueller Seitenumbruch — der in Word UND LibreOffice
           // identische Standard-Shortcut (seitenumbruch-req.md §1.2). Bewusst getrennt
