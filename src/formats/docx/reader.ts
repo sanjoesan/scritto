@@ -206,9 +206,15 @@ function decodeDrawingOrPict(
   return { kind: 'unsupported', unsupportedKind: 'object' }
 }
 
-function decodeRunElement(rEl: Element, headingInfo: HeadingInfo, imageRels: Map<string, string>, depth: number): RunLike[] {
+function decodeRunElement(
+  rEl: Element,
+  headingInfo: HeadingInfo,
+  imageRels: Map<string, string>,
+  depth: number,
+  extraMarks: Array<{ type: string; attrs?: Record<string, unknown> }> = [],
+): RunLike[] {
   const rPr = firstChildNS(rEl, OOXML_NAMESPACES.w, 'rPr')
-  const marks = marksFromRunProperties(rPr)
+  const marks = [...marksFromRunProperties(rPr), ...extraMarks]
   const out: RunLike[] = []
   for (const child of Array.from(rEl.children)) {
     if (child.namespaceURI === OOXML_NAMESPACES.w && child.localName === 't') {
@@ -246,20 +252,30 @@ function collectRuns(
   headingInfo: HeadingInfo,
   imageRels: Map<string, string>,
   depth: number,
+  extraMarks: Array<{ type: string; attrs?: Record<string, unknown> }> = [],
 ): void {
   for (const child of Array.from(container.children)) {
     if (child.namespaceURI !== OOXML_NAMESPACES.w) continue
     if (child.localName === 'r') {
-      runs.push(...decodeRunElement(child, headingInfo, imageRels, depth))
+      runs.push(...decodeRunElement(child, headingInfo, imageRels, depth, extraMarks))
     } else if (child.localName === 'del') {
       // Deleted (rejected/pending) tracked-change text — must not become visible.
-    } else if (child.localName === 'ins' || child.localName === 'hyperlink' || child.localName === 'smartTag') {
-      collectRuns(child, runs, headingInfo, imageRels, depth)
+    } else if (child.localName === 'hyperlink') {
+      // External hyperlink: the r:id resolves to the URL via the (type-neutral) rels
+      // map — previously only the visible text survived and the target was dropped
+      // (hyperlink-einfuegen-req.md §0.4). A `w:anchor`-only hyperlink (internal jump
+      // target, explicitly out of scope there) keeps its text without a link mark.
+      const relId = child.getAttributeNS(OOXML_NAMESPACES.r, 'id')
+      const target = relId ? imageRels.get(relId) : undefined
+      const marks = target ? [...extraMarks, { type: 'link', attrs: { href: target } }] : extraMarks
+      collectRuns(child, runs, headingInfo, imageRels, depth, marks)
+    } else if (child.localName === 'ins' || child.localName === 'smartTag') {
+      collectRuns(child, runs, headingInfo, imageRels, depth, extraMarks)
     } else if (child.localName === 'sdt') {
       const sdtContent = firstChildNS(child, OOXML_NAMESPACES.w, 'sdtContent')
-      if (sdtContent) collectRuns(sdtContent, runs, headingInfo, imageRels, depth)
+      if (sdtContent) collectRuns(sdtContent, runs, headingInfo, imageRels, depth, extraMarks)
     } else if (child.localName === 'fldSimple') {
-      collectRuns(child, runs, headingInfo, imageRels, depth)
+      collectRuns(child, runs, headingInfo, imageRels, depth, extraMarks)
     }
   }
 }
