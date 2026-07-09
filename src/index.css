@@ -206,6 +206,20 @@ body {
   margin: 0 0 0.6em;
 }
 
+/*
+ * Nummerierungsformat je Ebene: 1. / a. / i. — dieselbe Zyklik, die der DOCX-Export
+ * (docx/styleDefs.ts) und der ODT-Export (odt/styleRegistry.ts) schreiben, damit die
+ * Editor-Darstellung einer per Tab vertieften nummerierten Liste dem späteren
+ * Word-/LibreOffice-Bild entspricht (liste-einruecken-tab-req.md §3.9; für ul liefert
+ * das Browser-Stylesheet den disc/circle/square-Wechsel bereits von selbst).
+ */
+.ProseMirror ol { list-style-type: decimal; }
+.ProseMirror ol ol { list-style-type: lower-alpha; }
+.ProseMirror ol ol ol { list-style-type: lower-roman; }
+.ProseMirror ol ol ol ol { list-style-type: decimal; }
+.ProseMirror ol ol ol ol ol { list-style-type: lower-alpha; }
+.ProseMirror ol ol ol ol ol ol { list-style-type: lower-roman; }
+
 .page-break-spacer {
   width: 100%;
 }

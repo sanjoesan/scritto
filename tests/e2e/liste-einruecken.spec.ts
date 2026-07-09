@@ -72,6 +72,9 @@ test('nummerierte Liste: tiefere Ebene zeigt eigene, unterscheidbare Nummerierun
   await page.keyboard.type('unter')
   await page.keyboard.press('Tab')
   await expect(editor(page).locator('ol ol li')).toHaveText('unter')
+  // dieselbe 1./a./i.-Zyklik wie im DOCX-/ODT-Export (§3.9)
+  await expect(editor(page).locator('ol').first()).toHaveCSS('list-style-type', 'decimal')
+  await expect(editor(page).locator('ol ol')).toHaveCSS('list-style-type', 'lower-alpha')
 })
 
 test('Tab beim allerersten Punkt: sichtbarer No-Op, Fokus bleibt im Editor (§3.2)', async ({ page }) => {
