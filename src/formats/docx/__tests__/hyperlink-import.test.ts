@@ -67,3 +67,27 @@ describe('DOCX-Import: Hyperlink-Ziel wird als link-Mark übernommen (§0.4)', (
     expect(internal.marks?.some((m) => m.type === 'link') ?? false).toBe(false)
   })
 })
+
+// Reale Word-Fixture (req §0.10): bug65738.docx trägt externe Links (rId7–rId10) UND
+// interne w:anchor-Sprungziele in einer Datei — der wertvollste Einzelnachweis für
+// beide Zweige des neuen Hyperlink-Imports.
+describe('DOCX-Import: reale Fixture bug65738.docx', () => {
+  it('externe Links kommen mit aufgelöstem, wohlgeformtem Ziel an', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const buffer = readFileSync(join(__dirname, '../../../../tests/fixtures/external/docx/bug65738.docx'))
+    const result = await readDocx(buffer as unknown as Blob)
+    const hrefs = new Set<string>()
+    const visit = (node: { marks?: Array<{ type: string; attrs?: { href?: string } }>; content?: unknown[] }) => {
+      node.marks?.forEach((m) => {
+        if (m.type === 'link' && m.attrs?.href) hrefs.add(m.attrs.href)
+      })
+      ;(node.content as Array<Record<string, unknown>> | undefined)?.forEach((c) => visit(c as never))
+    }
+    ;(result.body as { content: Array<Record<string, unknown>> }).content.forEach((n) => visit(n as never))
+    expect(hrefs.size).toBeGreaterThanOrEqual(1)
+    for (const href of hrefs) {
+      expect(href, 'kein interner Paketpfad als Linkziel').toMatch(/^(https?:|mailto:)/)
+    }
+  })
+})
