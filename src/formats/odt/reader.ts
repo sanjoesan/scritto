@@ -27,7 +27,11 @@ interface ParsedStyles {
    * and/or fo:break-after="page" — both occur in real LibreOffice files
    * (seitenumbruch-req.md §0.10/§3.7, fixture pagebreaks.odt). */
   paragraphBreaks: Map<string, { before: boolean; after: boolean }>
-  listKinds: Map<string, 'bullet' | 'ordered'>
+  /** Per LIST LEVEL (1-based `text:level`), not per style: one `text:list-style` may mix
+   * `list-level-style-bullet` and `-number` across its levels — the previous
+   * "has ANY number level → whole style is ordered" read forced every level of such a
+   * foreign file onto one kind (liste-einruecken-tab-req.md Befund C Zeile 3). */
+  listKinds: Map<string, Map<number, 'bullet' | 'ordered'>>
 }
 
 function childElements(el: Element, ns: string, localName: string): Element[] {
@@ -42,7 +46,7 @@ function parseAutomaticStyles(automaticStylesEl: Element | null): ParsedStyles {
   const textStyles = new Map<string, RunStyle>()
   const paragraphAligns = new Map<string, string>()
   const paragraphBreaks = new Map<string, { before: boolean; after: boolean }>()
-  const listKinds = new Map<string, 'bullet' | 'ordered'>()
+  const listKinds = new Map<string, Map<number, 'bullet' | 'ordered'>>()
   if (!automaticStylesEl) return { textStyles, paragraphAligns, paragraphBreaks, listKinds }
 
   for (const styleEl of childElements(automaticStylesEl, ODF_NAMESPACES.style, 'style')) {
@@ -82,8 +86,16 @@ function parseAutomaticStyles(automaticStylesEl: Element | null): ParsedStyles {
   for (const listStyleEl of childElements(automaticStylesEl, ODF_NAMESPACES.text, 'list-style')) {
     const name = listStyleEl.getAttributeNS(ODF_NAMESPACES.style, 'name')
     if (!name) continue
-    const hasNumber = childElements(listStyleEl, ODF_NAMESPACES.text, 'list-level-style-number').length > 0
-    listKinds.set(name, hasNumber ? 'ordered' : 'bullet')
+    const levels = new Map<number, 'bullet' | 'ordered'>()
+    for (const levelEl of Array.from(listStyleEl.children)) {
+      if (levelEl.namespaceURI !== ODF_NAMESPACES.text) continue
+      const isNumber = levelEl.localName === 'list-level-style-number'
+      const isBullet = levelEl.localName === 'list-level-style-bullet' || levelEl.localName === 'list-level-style-image'
+      if (!isNumber && !isBullet) continue
+      const level = Number(levelEl.getAttributeNS(ODF_NAMESPACES.text, 'level') ?? '1') || 1
+      levels.set(level, isNumber ? 'ordered' : 'bullet')
+    }
+    listKinds.set(name, levels)
   }
 
   return { textStyles, paragraphAligns, paragraphBreaks, listKinds }
@@ -281,7 +293,23 @@ function frameToBlocks(frameEl: Element, styles: ParsedStyles, depth: number): J
   return [{ type: 'unsupported_block', attrs: { kind: 'object' }, content: [emptyParagraph()] }]
 }
 
-function elementToBlocks(el: Element, styles: ParsedStyles, depth = 0): JsonNode[] {
+/** List context threaded through nested `text:list` recursion: a nested list very often
+ * carries NO own `text:style-name` and inherits the outer list's style — and its list
+ * LEVEL (1-based) decides which `list-level-style-*` of that style applies. */
+interface ListContext {
+  styleName: string | null
+  level: number
+}
+
+/** The kind for one concrete (style, level): the level's own entry, else level 1 (deep
+ * levels of sparsely defined styles), else 'bullet' (previous default for unknown styles). */
+function listKindFor(styles: ParsedStyles, styleName: string | null, level: number): 'bullet' | 'ordered' {
+  const levels = styleName ? styles.listKinds.get(styleName) : undefined
+  if (!levels) return 'bullet'
+  return levels.get(level) ?? levels.get(1) ?? 'bullet'
+}
+
+function elementToBlocks(el: Element, styles: ParsedStyles, depth = 0, listCtx?: ListContext): JsonNode[] {
   const ns = el.namespaceURI
   const local = el.localName
 
@@ -318,10 +346,15 @@ function elementToBlocks(el: Element, styles: ParsedStyles, depth = 0): JsonNode
   if (ns === ODF_NAMESPACES.draw && local === 'frame') return frameToBlocks(el, styles, depth)
 
   if (ns === ODF_NAMESPACES.text && local === 'list') {
-    const styleName = el.getAttributeNS(ODF_NAMESPACES.text, 'style-name')
-    const kind = (styleName && styles.listKinds.get(styleName)) || 'bullet'
+    // A nested list without its own style-name inherits the enclosing list's style;
+    // the 1-based list level picks the matching `list-level-style-*` entry.
+    const styleName = el.getAttributeNS(ODF_NAMESPACES.text, 'style-name') ?? listCtx?.styleName ?? null
+    const level = (listCtx?.level ?? 0) + 1
+    const kind = listKindFor(styles, styleName, level)
     const items = childElements(el, ODF_NAMESPACES.text, 'list-item').map((itemEl) => {
-      const content = Array.from(itemEl.children).flatMap((child) => elementToBlocks(child, styles, depth + 1))
+      const content = Array.from(itemEl.children).flatMap((child) =>
+        elementToBlocks(child, styles, depth + 1, { styleName, level }),
+      )
       // A list item can legally hold nothing but e.g. a soft-page-break, which
       // `elementToBlocks` deliberately drops — `list_item`'s `block+` content model
       // still needs at least one block, so fall back to an empty paragraph rather

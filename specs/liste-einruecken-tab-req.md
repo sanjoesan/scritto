@@ -657,12 +657,21 @@ Desktop Chrome + Mobile + Tablet):
   600ms-Trennung (Testkommentar dokumentiert den Skip; Nutzertempo ist unbetroffen,
   die Granularität ist engine-unabhängige PM-Logik).
 
-**Nachtrag (gleicher Abend): DOCX-Reader-Ebenen-Typ-Restdefekt (Befund C Zeile 2) BEHOBEN** —
-`parseNumberingXml` liest jetzt JEDES `<w:lvl>` (numId → ilvl → Typ; dünn definierte tiefe
-Ebenen erben Ebene 0), `groupLists` fragt den Typ je (numId, ilvl) ab. Eine Fremddatei mit
-Bullet-Ebene-0/Decimal-Ebene-1 in EINER numId importiert damit typrichtig je Ebene
-(synthetischer Word-Nachbau in `mixed-list-import.test.ts`). Das ist die Reader-Hälfte von
-§5A Option B; der Writer behält vorgabegemäß sein statisches Zwei-num-Schema.
+**Nachtrag (gleicher Abend): BEIDE Reader-Ebenen-Typ-Restdefekte (Befund C Zeilen 2+3,
+Zusammenfassungs-Punkt 4) BEHOBEN** — damit ist die Reader-Hälfte von §5A Option B komplett:
+
+- **DOCX:** `parseNumberingXml` liest jetzt JEDES `<w:lvl>` (numId → ilvl → Typ; dünn
+  definierte tiefe Ebenen erben Ebene 0), `groupLists` fragt den Typ je (numId, ilvl) ab.
+  Fremddatei mit Bullet-Ebene-0/Decimal-Ebene-1 in EINER numId importiert typrichtig je
+  Ebene (synthetischer Word-Nachbau in `docx/__tests__/mixed-list-import.test.ts`).
+- **ODT:** `listKinds` ist jetzt Stilname → (text:level → Typ) aus allen
+  `list-level-style-bullet|-number|-image`-Einträgen; verschachtelte `text:list` OHNE
+  eigenes style-name erben den Stil der äußeren Liste, ihre 1-basierte Ebene wählt den
+  Eintrag (dünn definierte Ebenen fallen auf Ebene 1 zurück — die eigene LB/LO-Rundreise
+  bleibt dadurch unverändert). Synthetischer LO-Nachbau in
+  `odt/__tests__/mixed-list-import.test.ts`.
+
+Der **Writer** behält vorgabegemäß sein statisches Schema (§5A Option B).
 
 **Bewusst OFFEN (Status bleibt „teilweise", je als Vermerk gemäß Abnahmekriterium 11):**
 
@@ -670,10 +679,6 @@ Bullet-Ebene-0/Decimal-Ebene-1 in EINER numId importiert damit typrichtig je Ebe
   Ebene) kollabieren beim DOCX-Export weiterhin in die numId der äußersten Liste —
   gemäß §5A **Option B** die verbindliche Vorgabe dieser Datei (Option A = Lead/PO-
   Entscheidung, verortet in `mehrstufige-liste`); ODT nicht betroffen.
-- **ODT-Reader-Ebenen-Typ (Befund C Zeile 3):** `listKinds` weiterhin ein Typ pro
-  Stilname (betrifft den Fremddatei-Import gemischter ODT-Listen); der DOCX-Zwilling
-  ist behoben (s. o.), das ODT-Pendant braucht zusätzlich Stilnamen-Vererbung über
-  verschachtelte `text:list` ohne eigenes style-name-Attribut — eigenes Arbeitspaket.
 - **(c) `%N`-Fehlreferenz** in der zyklischen Nummerierungsdefinition ab Ebene ≥ 4 —
   unverändert.
 - **(d) DOCX-Import bildreiner Listenpunkte** — unverändert (vorbestehend).
