@@ -39,14 +39,24 @@ function encodeRunText(text: string): string {
   return `<w:t${needsSpacePreserve ? ' xml:space="preserve"' : ''}>${escaped}</w:t>`
 }
 
-function inlineToRuns(nodes: JsonNode[] | undefined): string {
+function inlineToRuns(nodes: JsonNode[] | undefined, rels?: RelationshipRegistry): string {
   if (!nodes) return ''
-  const runs: string[] = []
+  // Each segment remembers the link target of its run (null = unlinked) so consecutive
+  // same-href runs can be wrapped in ONE <w:hyperlink> afterwards.
+  const segments: Array<{ xml: string; href: string | null }> = []
   let buffer: { text: string; marks: JsonNode['marks'] } | null = null
+
+  const hrefOf = (marks: JsonNode['marks']): string | null => {
+    const href = marks?.find((m) => m.type === 'link')?.attrs?.href
+    return typeof href === 'string' && href ? href : null
+  }
 
   const flush = () => {
     if (!buffer) return
-    runs.push(`<w:r>${runPropertiesXml(buffer.marks)}${encodeRunText(buffer.text)}</w:r>`)
+    segments.push({
+      xml: `<w:r>${runPropertiesXml(buffer.marks)}${encodeRunText(buffer.text)}</w:r>`,
+      href: hrefOf(buffer.marks),
+    })
     buffer = null
   }
 
@@ -60,11 +70,33 @@ function inlineToRuns(nodes: JsonNode[] | undefined): string {
       }
     } else if (node.type === 'hard_break') {
       flush()
-      runs.push('<w:r><w:br/></w:r>')
+      segments.push({ xml: '<w:r><w:br/></w:r>', href: null })
     }
   }
   flush()
-  return runs.join('')
+
+  // Hyperlink (hyperlink-einfuegen-req.md §3): linked runs are wrapped in
+  // <w:hyperlink r:id> referencing an External relationship (registry escapes the
+  // target and adds TargetMode, see relationships.ts). Consecutive runs sharing one
+  // href (e.g. a partly bold link) become ONE hyperlink element with one relationship.
+  const out: string[] = []
+  let index = 0
+  while (index < segments.length) {
+    const { href } = segments[index]
+    if (!href || !rels) {
+      out.push(segments[index].xml)
+      index += 1
+      continue
+    }
+    const group: string[] = []
+    while (index < segments.length && segments[index].href === href) {
+      group.push(segments[index].xml)
+      index += 1
+    }
+    const relId = rels.add(RELATIONSHIP_TYPES.hyperlink, href, 'External')
+    out.push(`<w:hyperlink r:id="${relId}" w:history="1">${group.join('')}</w:hyperlink>`)
+  }
+  return out.join('')
 }
 
 function paragraphPropsXml(align: string, extra = ''): string {
@@ -134,13 +166,13 @@ function blockToDocx(
       const numPr = listContext
         ? `<w:numPr><w:ilvl w:val="${listContext.level}"/><w:numId w:val="${listContext.numId}"/></w:numPr>`
         : ''
-      return `<w:p>${paragraphPropsXml(align, numPr)}${breakRun}${inlineToRuns(node.content)}</w:p>`
+      return `<w:p>${paragraphPropsXml(align, numPr)}${breakRun}${inlineToRuns(node.content, rels)}</w:p>`
     }
     case 'heading': {
       const level = Number(node.attrs?.level ?? 1)
       const align = (node.attrs?.align as string) ?? 'left'
       const styleTag = `<w:pStyle w:val="${HEADING_STYLE_ID(level)}"/>`
-      return `<w:p>${paragraphPropsXml(align, styleTag)}${breakRun}${inlineToRuns(node.content)}</w:p>`
+      return `<w:p>${paragraphPropsXml(align, styleTag)}${breakRun}${inlineToRuns(node.content, rels)}</w:p>`
     }
     case 'bullet_list':
     case 'ordered_list': {
