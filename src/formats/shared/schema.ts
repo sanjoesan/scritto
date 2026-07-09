@@ -231,6 +231,27 @@ const marks: Record<string, MarkSpec> = {
       return ['span', { style: `background-color: ${mark.attrs.color}` }, 0]
     },
   },
+
+  // Hyperlink (specs/hyperlink-einfuegen-req.md) — Datenmodell-Scheibe: das Mark trägt
+  // die Ziel-URL; Import/Export laufen über text:a (ODT) bzw. w:hyperlink+Relationship
+  // (DOCX, folgt). `inclusive: false`, damit direkt hinter einem Link getippter Text
+  // NICHT mitverlinkt wird (Word-/Docs-Verhalten). Die parseDOM-Regel greift auch beim
+  // HTML-Paste; javascript:-URLs entschärft der Paste-Sanitizer bereits vorab
+  // (paste.ts, sanitizePastedHtml Schritt 3). Command/Dialog/Toolbar folgen als
+  // nächste Scheibe der req.
+  link: {
+    attrs: { href: { validate: 'string' } },
+    inclusive: false,
+    parseDOM: [
+      {
+        tag: 'a[href]',
+        getAttrs: (dom) => ({ href: (dom as HTMLElement).getAttribute('href') ?? '' }),
+      },
+    ],
+    toDOM(mark) {
+      return ['a', { href: mark.attrs.href }, 0]
+    },
+  },
 }
 
 export const wordSchema = new Schema({ nodes, marks })

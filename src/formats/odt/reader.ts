@@ -171,6 +171,13 @@ function decodeInline(pEl: Element, styles: ParsedStyles): JsonNode[] {
       const styleName = el.getAttributeNS(ODF_NAMESPACES.text, 'style-name')
       const childMarks = mergeMarks(marks, marksFor(styleName))
       for (const child of Array.from(el.childNodes)) walk(child, childMarks)
+    } else if (el.namespaceURI === ODF_NAMESPACES.text && el.localName === 'a') {
+      // Hyperlink: die Ziel-URL wird jetzt als link-Mark übernommen statt (wie zuvor)
+      // nur den sichtbaren Text zu retten und das xlink:href zu verwerfen
+      // (hyperlink-einfuegen-req.md §0.5). Ohne href bleibt es beim reinen Abstieg.
+      const href = el.getAttributeNS(ODF_NAMESPACES.xlink, 'href')
+      const childMarks = href ? mergeMarks(marks, [{ type: 'link', attrs: { href } }]) : marks
+      for (const child of Array.from(el.childNodes)) walk(child, childMarks)
     } else if (el.namespaceURI === ODF_NAMESPACES.text && el.localName === 'line-break') {
       result.push({ type: 'hard_break' })
     } else if (el.namespaceURI === ODF_NAMESPACES.text && el.localName === 's') {

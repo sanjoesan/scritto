@@ -77,7 +77,15 @@ function inlineToOdt(nodes: JsonNode[] | undefined, styles: TextStyleRegistry): 
       if (node.type === 'text') {
         const text = encodeWhitespace(node.text ?? '')
         const styleName = styles.styleNameFor(runPropsFromMarks(node.marks))
-        return styleName ? `<text:span text:style-name="${styleName}">${text}</text:span>` : text
+        const span = styleName ? `<text:span text:style-name="${styleName}">${text}</text:span>` : text
+        // Hyperlink (hyperlink-einfuegen-req.md): ODF kodiert Links als text:a-Element
+        // um den Lauf. Ein Link über mehrere unterschiedlich formatierte Textknoten
+        // ergibt mehrere aufeinanderfolgende text:a mit derselben URL — ODF-legal;
+        // LibreOffice zeigt sie als einen zusammenhängenden Link.
+        const href = node.marks?.find((m) => m.type === 'link')?.attrs?.href
+        return href
+          ? `<text:a xlink:type="simple" xlink:href="${escapeXml(String(href))}">${span}</text:a>`
+          : span
       }
       return ''
     })
