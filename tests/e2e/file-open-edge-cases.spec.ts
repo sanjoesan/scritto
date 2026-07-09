@@ -310,13 +310,21 @@ for (const { label, card } of cards) {
     await button.focus()
     await expect(button).toBeFocused()
 
-    const chooserPromise1 = page.waitForEvent('filechooser')
-    await page.keyboard.press('Enter')
-    await chooserPromise1
-
-    const chooserPromise2 = page.waitForEvent('filechooser')
-    await page.keyboard.press('Space')
-    await chooserPromise2
+    // The same load race meanwhile also hit Desktop Chrome in full-suite runs (three
+    // consecutive local 6-worker runs, always green in isolation): the keypress lands
+    // but Chromium never surfaces the chooser. Re-pressing after a bounded wait keeps
+    // the assertion honest — the FIRST observed chooser must still come from this key —
+    // while surviving a swallowed keypress under load.
+    const pressUntilChooser = async (key: 'Enter' | 'Space') => {
+      for (let attempt = 0; ; attempt++) {
+        const chooser = page.waitForEvent('filechooser', { timeout: 8000 }).catch(() => null)
+        await page.keyboard.press(key)
+        if (await chooser) return
+        if (attempt >= 2) throw new Error(`Dateiauswahl öffnete sich nicht per ${key} (3 Versuche)`)
+      }
+    }
+    await pressUntilChooser('Enter')
+    await pressUntilChooser('Space')
   })
 }
 
