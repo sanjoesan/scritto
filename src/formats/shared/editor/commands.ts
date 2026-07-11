@@ -601,6 +601,22 @@ export function activeFontFamily(state: EditorState): string | null | 'mixed' {
   return family ?? null
 }
 
+/** Alle im Dokument per Mark referenzierten Schriftarten in Auftrittsreihenfolge —
+ * die Combobox-Gruppe „Im Dokument verwendet" (req §1 #4, Dedupe §3.24). */
+export function documentFontFamilies(state: EditorState): string[] {
+  const families: string[] = []
+  state.doc.descendants((node) => {
+    node.marks.forEach((mark) => {
+      if (mark.type.name === 'fontFamily') {
+        const family = mark.attrs.family as string
+        if (!families.includes(family)) families.push(family)
+      }
+    })
+    return true
+  })
+  return families
+}
+
 /** Setzt die Schriftart — an der Schreibmarke als storedMark (req §2.2, ausdrücklich
  * das toggleMark-Muster); alle selection.ranges in EINER Transaktion. Leere Namen
  * setzen nichts (Grenzfall 3.16 — der Aufrufer filtert zusätzlich). */

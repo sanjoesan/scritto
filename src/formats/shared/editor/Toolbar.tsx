@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
+import { FontFamilyCombobox } from './FontFamilyCombobox'
 import type { EditorView } from 'prosemirror-view'
 import type { Command, EditorState } from 'prosemirror-state'
 import { toggleMark } from 'prosemirror-commands'
@@ -481,6 +482,9 @@ export function Toolbar({ view, cutError, setCutError, onOpenTableDialog, onOpen
       </select>
 
       <div className="w-px h-5 bg-neutral-300 dark:bg-neutral-700 mx-1" />
+
+      {/* Schriftart (schriftart-waehlen-req.md §1 #1) — vor der Größe, wie in Word. */}
+      <FontFamilyCombobox view={view} />
 
       {/* Schriftgröße (schriftgroesse-waehlen-req.md §1) — in der Zeichenformat-Gruppe. */}
       <FontSizeField view={view} />
