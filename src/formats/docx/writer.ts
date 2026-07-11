@@ -367,13 +367,20 @@ export async function writeDocx(doc: WordDocumentContent): Promise<Blob> {
   let sectPrExtra = ''
   let headerXml: string | null = null
   let footerXml: string | null = null
+  // Kopf-/Fußzeilen-Inhalte referenzieren ihre Bilder über PART-EIGENE Relationships
+  // (word/_rels/header1.xml.rels) — OOXML löst r:embed immer gegen die .rels des
+  // referenzierenden Parts auf. Vorher landeten Header-Bild-Rels in document.xml.rels,
+  // wo header1.xml sie nie findet (kopfzeile-bearbeiten-req.md §0.A/1: Logo-Bild in
+  // Word unsichtbar/als Fehler). Die Bild-BYTES teilen sich weiterhin einen Collector.
+  const headerRels = new RelationshipRegistry()
+  const footerRels = new RelationshipRegistry()
   if (header) {
-    headerXml = buildHeaderFooterXml('hdr', blocksToDocx(header.content, images, documentRels))
+    headerXml = buildHeaderFooterXml('hdr', blocksToDocx(header.content, images, headerRels))
     const relId = documentRels.add(RELATIONSHIP_TYPES.header, 'header1.xml')
     sectPrExtra += `<w:headerReference w:type="default" r:id="${relId}"/>`
   }
   if (footer) {
-    footerXml = buildHeaderFooterXml('ftr', blocksToDocx(footer.content, images, documentRels))
+    footerXml = buildHeaderFooterXml('ftr', blocksToDocx(footer.content, images, footerRels))
     const relId = documentRels.add(RELATIONSHIP_TYPES.footer, 'footer1.xml')
     sectPrExtra += `<w:footerReference w:type="default" r:id="${relId}"/>`
   }
@@ -403,6 +410,12 @@ export async function writeDocx(doc: WordDocumentContent): Promise<Blob> {
   if (headerXml) wordFolder.file('header1.xml', headerXml)
   if (footerXml) wordFolder.file('footer1.xml', footerXml)
   wordFolder.folder('_rels')!.file('document.xml.rels', documentRels.serialize())
+  if (headerXml && headerRels.all().length > 0) {
+    wordFolder.folder('_rels')!.file('header1.xml.rels', headerRels.serialize())
+  }
+  if (footerXml && footerRels.all().length > 0) {
+    wordFolder.folder('_rels')!.file('footer1.xml.rels', footerRels.serialize())
+  }
   if (images.all().length) {
     const media = wordFolder.folder('media')!
     for (const image of images.all()) {

@@ -619,24 +619,21 @@ export async function readDocx(file: File | Blob): Promise<WordDocumentContent> 
     const headerRelId = headerRef?.getAttributeNS(OOXML_NAMESPACES.r, 'id')
     const footerRelId = footerRef?.getAttributeNS(OOXML_NAMESPACES.r, 'id')
 
-    if (headerRelId && documentRels.has(headerRelId)) {
-      const path = resolvePartPath('word/document.xml', documentRels.get(headerRelId)!)
+    // r:embed/r:id in einem Kopf-/Fußzeilen-Part löst OOXML gegen die PART-EIGENE
+    // .rels-Datei auf (word/_rels/header1.xml.rels) — nicht gegen document.xml.rels.
+    // Vorher wurde nur letztere verwendet, wodurch Bilder importierter Kopf-/Fußzeilen
+    // (typisch: Firmenlogo) nie aufgelöst wurden (kopfzeile-bearbeiten-req.md §0.A/1).
+    const readPart = async (relId: string): Promise<JsonNode[] | null> => {
+      const path = resolvePartPath('word/document.xml', documentRels.get(relId)!)
       const text = await zip.file(path)?.async('text')
-      if (text) {
-        const headerDoc = parseXmlDocument(text)
-        const root = headerDoc.documentElement
-        headerBlocks = await readBodyChildren(root, headingInfo, kindByNumId, documentRels, zip)
-      }
+      if (!text) return null
+      const partName = path.split('/').pop()!
+      const partRels = await readRelationships(zip, `word/_rels/${partName}.rels`)
+      const root = parseXmlDocument(text).documentElement
+      return readBodyChildren(root, headingInfo, kindByNumId, partRels, zip)
     }
-    if (footerRelId && documentRels.has(footerRelId)) {
-      const path = resolvePartPath('word/document.xml', documentRels.get(footerRelId)!)
-      const text = await zip.file(path)?.async('text')
-      if (text) {
-        const footerDoc = parseXmlDocument(text)
-        const root = footerDoc.documentElement
-        footerBlocks = await readBodyChildren(root, headingInfo, kindByNumId, documentRels, zip)
-      }
-    }
+    if (headerRelId && documentRels.has(headerRelId)) headerBlocks = await readPart(headerRelId)
+    if (footerRelId && documentRels.has(footerRelId)) footerBlocks = await readPart(footerRelId)
   }
 
   let title = ''

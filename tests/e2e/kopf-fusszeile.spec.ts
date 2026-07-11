@@ -107,6 +107,29 @@ test('Entfernen mit Bestätigung: nicht-leere Fußzeile fragt nach und verschwin
   await expect(footerButton(page)).toHaveAttribute('aria-pressed', 'false')
 })
 
+test('Logo-Bild in der Kopfzeile: Export mit Part-eigenen Rels, Reimport zeigt das Bild (§0.A/1)', async ({
+  page,
+}) => {
+  const TINY_PNG =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+  await openEditor(page, docxCard)
+  await headerButton(page).click()
+  await page.locator('label:has-text("Bild")').locator('input[type=file]').setInputFiles({
+    name: 'logo.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(TINY_PNG, 'base64'),
+  })
+  await expect(headerEditor(page).locator('img')).toHaveCount(1)
+  await expect(bodyEditor(page).locator('img')).toHaveCount(0) // NUR die Kopfzeile
+
+  const buffer = await exportBytes(page)
+  const zip = await JSZip.loadAsync(buffer)
+  expect(await zip.file('word/_rels/header1.xml.rels')!.async('text')).toContain('media/')
+
+  await reimport(page, docxCard, 'logo.docx', DOCX_MIME, buffer)
+  await expect(headerEditor(page).locator('img')).toHaveCount(1)
+})
+
 for (const fmt of ['docx', 'odt'] as const) {
   test(`Rundreise ${fmt.toUpperCase()}: Kopf- und Fußzeilen-Inhalt übersteht Export → Reimport (§6)`, async ({
     page,

@@ -671,7 +671,7 @@ Realdatei-Inhaltstests) — analog `FEATURE-SPEC-DOCX-ODT.md` Abschnitt 17/21.
 4. **Gemeinsame Bedienleiste:** zwei benachbarte Toggle-Buttons (SVG-Icons, aria-pressed
    = Bereich vorhanden) für Kopf- UND Fußzeile; beide Slugs wurden in einem Wurf
    umgesetzt (identische Architektur, HeaderFooterEditor-Komponente).
-5. DOCX-Part-Rels-Bild-Lücke (0.A/1): NOCH OFFEN — wird mit Stufe 2 behoben (Scheibe B).
+5. DOCX-Part-Rels-Bild-Lücke (0.A/1): BEHOBEN (gleicher Tag, Nachtrag zu Scheibe A) — der Writer führt je Part eine eigene RelationshipRegistry und schreibt word/_rels/header1.xml.rels bzw. footer1.xml.rels (Hyperlink-Rels der Kopf-/Fußzeile inklusive); der Reader lädt die Part-eigenen Rels vor dem Block-Lesen. Unit-belegt (header-image.test.ts: Rel im richtigen Part, document.xml.rels bildfrei, Rundreise liefert die data-URL) und E2E-belegt (Logo über die UI einfügen → Export → Reimport zeigt das Bild im Kopfzeilen-Editor).
 6. „Erste Seite anders"/„gerade-ungerade": bleiben dokumentierte Einschränkung
    (eigene Slugs, kein UI-Element täuscht sie an).
 
