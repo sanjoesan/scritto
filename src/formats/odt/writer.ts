@@ -41,6 +41,7 @@ function runPropsFromMarks(marks: JsonNode['marks']): RunProps {
     if (mark.type === 'textColor') props.color = mark.attrs?.color as string
     if (mark.type === 'highlight') props.highlight = mark.attrs?.color as string
     if (mark.type === 'fontSize') props.fontSizePt = mark.attrs?.pt as number
+    if (mark.type === 'fontFamily') props.fontFamily = mark.attrs?.family as string
   }
   return props
 }
@@ -275,6 +276,8 @@ function buildContentXml(bodyXml: string, styles: TextStyleRegistry): string {
   return (
     `<?xml version="1.0" encoding="UTF-8"?>` +
     `<office:document-content ${NAMESPACE_DECLARATIONS} office:version="1.3">` +
+    // ODF-Elementreihenfolge: font-face-decls VOR automatic-styles (schriftart §2.9).
+    styles.serializeFontFaceDecls() +
     `<office:automatic-styles>${paragraphAlignStyleDefs()}${headingStyleDefs()}${listStyleDefs()}${styles.serializeDefs()}</office:automatic-styles>` +
     `<office:body><office:text>${bodyXml}</office:text></office:body>` +
     `</office:document-content>`
@@ -285,6 +288,7 @@ function buildStylesXml(headerXml: string | null, footerXml: string | null, styl
   return (
     `<?xml version="1.0" encoding="UTF-8"?>` +
     `<office:document-styles ${NAMESPACE_DECLARATIONS} office:version="1.3">` +
+    styles.serializeFontFaceDecls() +
     `<office:styles><style:style style:name="Standard" style:family="paragraph"/></office:styles>` +
     `<office:automatic-styles>` +
     `<style:page-layout style:name="PL1"><style:page-layout-properties fo:margin="${mmToCm(PAGE_MARGIN_MM)}" fo:page-width="${mmToCm(PAGE_WIDTH_MM)}" fo:page-height="${mmToCm(PAGE_HEIGHT_MM)}"/></style:page-layout>` +

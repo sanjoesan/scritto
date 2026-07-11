@@ -1,6 +1,7 @@
 import JSZip from 'jszip'
 import type { WordDocumentContent } from '../shared/documentModel'
 import { assertLoadableDocument } from '../shared/validateDocument'
+import { firstConcreteFamily, stripSymmetricQuotes } from '../shared/editor/fonts'
 import { ODF_NAMESPACES, parseXmlDocument } from './xmlUtil'
 
 interface JsonNode {
@@ -19,6 +20,7 @@ interface RunStyle {
   color?: string
   highlight?: string
   fontSizePt?: number
+  fontFamily?: string
 }
 
 interface ParsedStyles {
@@ -43,7 +45,28 @@ function firstChildNS(el: Element, ns: string, localName: string): Element | nul
   return childElements(el, ns, localName)[0] ?? null
 }
 
-function parseAutomaticStyles(automaticStylesEl: Element | null): ParsedStyles {
+/**
+ * `office:font-face-decls` des jeweiligen Dokumentteils: style:name (interne ID, ggf.
+ * suffixiert wie "Arial1") → Anzeigename aus svg:font-family. Reale Dateien liefern den
+ * svg:font-family-Wert teils wörtlich in Apostrophen (`'Times New Roman'`) — ein
+ * symmetrisches Randpaar wird entfernt (schriftart-waehlen-req.md Grenzfall 3.25);
+ * mehrere Familien (CSS-Stack) reduziert der erste konkrete Eintrag.
+ */
+function parseFontFaceDecls(doc: Document): Map<string, string> {
+  const byName = new Map<string, string>()
+  const declsEl = doc.getElementsByTagNameNS(ODF_NAMESPACES.office, 'font-face-decls')[0]
+  if (!declsEl) return byName
+  for (const faceEl of childElements(declsEl, ODF_NAMESPACES.style, 'font-face')) {
+    const name = faceEl.getAttributeNS(ODF_NAMESPACES.style, 'name')
+    const svgFamily = faceEl.getAttributeNS(ODF_NAMESPACES.svg, 'font-family')
+    if (!name) continue
+    const family = svgFamily ? firstConcreteFamily(svgFamily) : null
+    byName.set(name, family ?? name)
+  }
+  return byName
+}
+
+function parseAutomaticStyles(automaticStylesEl: Element | null, fontFaces: Map<string, string> = new Map()): ParsedStyles {
   const textStyles = new Map<string, RunStyle>()
   const paragraphAligns = new Map<string, string>()
   const paragraphBreaks = new Map<string, { before: boolean; after: boolean }>()
@@ -78,6 +101,11 @@ function parseAutomaticStyles(automaticStylesEl: Element | null): ParsedStyles {
         const pt = Number(ptMatch[1])
         if (Number.isFinite(pt) && pt > 0) style.fontSizePt = pt
       }
+      // style:font-name verweist auf einen font-face-decls-Eintrag DESSELBEN Teils
+      // (schriftart-waehlen-req.md §2.9/Grenzfall 3.19); fehlt der Eintrag (kaputte
+      // Datei), zählt der rohe Name (Grenzfall 3.13) — Randquotes gestrippt (3.25).
+      const fontName = props.getAttributeNS(ODF_NAMESPACES.style, 'font-name')
+      if (fontName) style.fontFamily = fontFaces.get(fontName) ?? stripSymmetricQuotes(fontName)
       textStyles.set(name, style)
     } else if (family === 'paragraph') {
       const props = firstChildNS(styleEl, ODF_NAMESPACES.style, 'paragraph-properties')
@@ -143,6 +171,7 @@ function decodeInline(pEl: Element, styles: ParsedStyles): JsonNode[] {
     if (style.color) marks.push({ type: 'textColor', attrs: { color: style.color } })
     if (style.highlight) marks.push({ type: 'highlight', attrs: { color: style.highlight } })
     if (style.fontSizePt !== undefined) marks.push({ type: 'fontSize', attrs: { pt: style.fontSizePt } })
+    if (style.fontFamily) marks.push({ type: 'fontFamily', attrs: { family: style.fontFamily } })
     return marks
   }
 
@@ -475,7 +504,7 @@ export async function readOdt(file: File | Blob): Promise<WordDocumentContent> {
   if (!contentXmlText) throw new Error('content.xml fehlt — keine gültige ODT-Datei.')
   const contentDoc = parseXmlDocument(contentXmlText)
   const contentAutomaticStyles = contentDoc.getElementsByTagNameNS(ODF_NAMESPACES.office, 'automatic-styles')[0] ?? null
-  const contentStyles = parseAutomaticStyles(contentAutomaticStyles)
+  const contentStyles = parseAutomaticStyles(contentAutomaticStyles, parseFontFaceDecls(contentDoc))
   const officeText = contentDoc.getElementsByTagNameNS(ODF_NAMESPACES.office, 'text')[0]
   const bodyBlocks = officeText ? await readOfficeTextChildren(officeText, contentStyles, zip) : []
 
@@ -485,7 +514,7 @@ export async function readOdt(file: File | Blob): Promise<WordDocumentContent> {
   if (stylesXmlText) {
     const stylesDoc = parseXmlDocument(stylesXmlText)
     const stylesAutomaticStyles = stylesDoc.getElementsByTagNameNS(ODF_NAMESPACES.office, 'automatic-styles')[0] ?? null
-    const stylesForChrome = parseAutomaticStyles(stylesAutomaticStyles)
+    const stylesForChrome = parseAutomaticStyles(stylesAutomaticStyles, parseFontFaceDecls(stylesDoc))
     const masterPage = stylesDoc.getElementsByTagNameNS(ODF_NAMESPACES.style, 'master-page')[0]
     if (masterPage) {
       const headerEl = firstChildNS(masterPage, ODF_NAMESPACES.style, 'header')

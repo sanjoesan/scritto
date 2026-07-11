@@ -572,6 +572,75 @@ export function activeColor(state: EditorState, markName: ColorMarkName): string
   return color ?? null
 }
 
+// ---- Schriftart (specs/schriftart-waehlen-req.md) ------------------------------------
+
+/**
+ * Die aktive Schriftart der Selektion (req §1 #1/#8, §2.3): einheitlicher Mark-Name,
+ * `null` = markloser Text (KEIN erfundener Default — harte Anforderung §2.4; das Feld
+ * zeigt dann seinen neutralen Platzhalter), `'mixed'` = echt gemischte Selektion.
+ */
+export function activeFontFamily(state: EditorState): string | null | 'mixed' {
+  const type = wordSchema.marks.fontFamily
+  const { empty, $from, ranges } = state.selection
+  if (empty) {
+    const mark = type.isInSet(state.storedMarks || $from.marks())
+    return mark ? (mark.attrs.family as string) : null
+  }
+  let family: string | null | undefined
+  let mixed = false
+  for (const range of ranges) {
+    state.doc.nodesBetween(range.$from.pos, range.$to.pos, (node) => {
+      if (!node.isText || mixed) return
+      const mark = type.isInSet(node.marks)
+      const nodeFamily = mark ? (mark.attrs.family as string) : null
+      if (family === undefined) family = nodeFamily
+      else if (family !== nodeFamily) mixed = true
+    })
+  }
+  if (mixed) return 'mixed'
+  return family ?? null
+}
+
+/** Setzt die Schriftart — an der Schreibmarke als storedMark (req §2.2, ausdrücklich
+ * das toggleMark-Muster); alle selection.ranges in EINER Transaktion. Leere Namen
+ * setzen nichts (Grenzfall 3.16 — der Aufrufer filtert zusätzlich). */
+export function applyFontFamily(family: string): Command {
+  return (state, dispatch) => {
+    if (!family.trim()) return false
+    const mark = wordSchema.marks.fontFamily.create({ family })
+    if (dispatch) {
+      const { empty, ranges } = state.selection
+      let tr = state.tr
+      if (empty) {
+        tr = tr.addStoredMark(mark)
+      } else {
+        for (const range of ranges) tr = tr.addMark(range.$from.pos, range.$to.pos, mark)
+      }
+      dispatch(tr)
+    }
+    return true
+  }
+}
+
+/** Entfernt den Schriftart-Mark (zurück zur Basisschrift); an der Schreibmarke wird die
+ * Vormerkung zurückgenommen. Auf schriftartlosem Text ein No-Op ohne Exception (§1 #14). */
+export function clearFontFamily(): Command {
+  return (state, dispatch) => {
+    const type = wordSchema.marks.fontFamily
+    if (dispatch) {
+      const { empty, ranges } = state.selection
+      let tr = state.tr
+      if (empty) {
+        tr = tr.removeStoredMark(type)
+      } else {
+        for (const range of ranges) tr = tr.removeMark(range.$from.pos, range.$to.pos, type)
+      }
+      dispatch(tr)
+    }
+    return true
+  }
+}
+
 // ---- Schriftgröße (specs/schriftgroesse-waehlen-req.md) ------------------------------
 
 /** Implizite Vorlagen-Größen der Überschriften in pt (req §2.4) — identisch zu den

@@ -10,6 +10,8 @@ export interface RunProps {
   /** Schriftgröße in pt — exakt, auch nicht-0,5er-Importwerte wie 10.3
    * (schriftgroesse-waehlen-req.md §2.5). */
   fontSizePt?: number
+  /** Schriftartname — exakt wie gewählt/gelesen (schriftart-waehlen-req.md §2.7). */
+  fontFamily?: string
 }
 
 function isEmpty(props: RunProps): boolean {
@@ -20,7 +22,8 @@ function isEmpty(props: RunProps): boolean {
     !props.strike &&
     !props.color &&
     !props.highlight &&
-    props.fontSizePt === undefined
+    props.fontSizePt === undefined &&
+    props.fontFamily === undefined
   )
 }
 
@@ -34,10 +37,12 @@ export class TextStyleRegistry {
   private byKey = new Map<string, string>()
   private defs: string[] = []
   private counter = 0
+  private fontFamilies = new Set<string>()
 
   /** Returns the style name to reference for this mark combination, or null if plain text suffices. */
   styleNameFor(props: RunProps): string | null {
     if (isEmpty(props)) return null
+    if (props.fontFamily) this.fontFamilies.add(props.fontFamily)
     const key = JSON.stringify(props)
     const existing = this.byKey.get(key)
     if (existing) return existing
@@ -52,6 +57,24 @@ export class TextStyleRegistry {
   serializeDefs(): string {
     return this.defs.join('')
   }
+
+  /**
+   * ODF verlangt für jede referenzierte Schriftart die DOPPELverankerung: neben dem
+   * `style:font-name`-Attribut am Textstil auch ein `style:font-face`-Eintrag in
+   * `office:font-face-decls` (schriftart-waehlen-req.md §2.9) — dedupliziert pro
+   * Dokumentteil (jede Registry-Instanz = ein Teil, analog bodyStyles/chromeStyles).
+   * Mehrteilige Namen erhalten in svg:font-family LibreOffice-üblich Apostrophe.
+   */
+  serializeFontFaceDecls(): string {
+    if (this.fontFamilies.size === 0) return ''
+    const decls = [...this.fontFamilies]
+      .map((family) => {
+        const svgValue = /[\s,]/.test(family) ? `'${family}'` : family
+        return `<style:font-face style:name="${escapeXml(family)}" svg:font-family="${escapeXml(svgValue)}"/>`
+      })
+      .join('')
+    return `<office:font-face-decls>${decls}</office:font-face-decls>`
+  }
 }
 
 function buildTextStyleXml(name: string, props: RunProps): string {
@@ -64,6 +87,7 @@ function buildTextStyleXml(name: string, props: RunProps): string {
     )
   }
   if (props.strike) attrs.push('style:text-line-through-style="solid" style:text-line-through-type="single"')
+  if (props.fontFamily !== undefined) attrs.push(`style:font-name="${escapeXml(props.fontFamily)}"`)
   if (props.fontSizePt !== undefined) {
     attrs.push(
       `fo:font-size="${props.fontSizePt}pt" style:font-size-asian="${props.fontSizePt}pt" style:font-size-complex="${props.fontSizePt}pt"`,

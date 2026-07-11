@@ -130,6 +130,14 @@ function marksFromRunProperties(rPr: Element | null): Array<{ type: string; attr
   const shd = firstChildNS(rPr, OOXML_NAMESPACES.w, 'shd')
   const fill = shd?.getAttributeNS(OOXML_NAMESPACES.w, 'fill')
   if (fill && fill !== 'auto') marks.push({ type: 'highlight', attrs: { color: `#${fill}` } })
+  // w:rFonts: kanonisch w:ascii, ersatzweise w:hAnsi (schriftart-waehlen-req.md §2.8).
+  // Nur-w:eastAsia oder reine Theme-Referenzen (w:asciiTheme, Grenzfälle 3.14/3.15)
+  // erzeugen BEWUSST keinen Mark — der Text fällt auf die Basisschrift, statt dass ein
+  // Name erfunden würde; Theme-Auflösung ist laut req §5.4 Nicht-Ziel.
+  const rFonts = firstChildNS(rPr, OOXML_NAMESPACES.w, 'rFonts')
+  const familyName =
+    rFonts?.getAttributeNS(OOXML_NAMESPACES.w, 'ascii') || rFonts?.getAttributeNS(OOXML_NAMESPACES.w, 'hAnsi')
+  if (familyName) marks.push({ type: 'fontFamily', attrs: { family: familyName } })
   // w:sz = halbe Punkte → pt exakt (Importwerte werden NIE geclamped/gerundet,
   // schriftgroesse-waehlen-req.md §2.5).
   const sz = firstChildNS(rPr, OOXML_NAMESPACES.w, 'sz')

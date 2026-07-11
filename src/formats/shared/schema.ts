@@ -1,5 +1,6 @@
 import { Schema, type NodeSpec, type MarkSpec } from 'prosemirror-model'
 import { tableNodes } from 'prosemirror-tables'
+import { cssFontFamily, firstConcreteFamily } from './editor/fonts'
 
 const alignAttr = { align: { default: 'left', validate: 'string' } }
 
@@ -229,6 +230,26 @@ const marks: Record<string, MarkSpec> = {
     parseDOM: [{ style: 'background-color', getAttrs: (value) => ({ color: value }) }],
     toDOM(mark) {
       return ['span', { style: `background-color: ${mark.attrs.color}` }, 0]
+    },
+  },
+
+  // Schriftart (specs/schriftart-waehlen-req.md §1 #10): toDOM rendert die Wahl sofort
+  // sichtbar (§2.6) mit gequotetem Namen + generischem Fallback (§2.7/Grenzfall 3.22);
+  // parseDOM übernimmt beim HTML-Paste den ersten KONKRETEN Namen einer
+  // font-family-Liste (Grenzfall 3.20) — rein generische Stacks erzeugen keinen Mark.
+  fontFamily: {
+    attrs: { family: { validate: 'string' } },
+    parseDOM: [
+      {
+        style: 'font-family',
+        getAttrs: (value) => {
+          const family = firstConcreteFamily(String(value))
+          return family ? { family } : false
+        },
+      },
+    ],
+    toDOM(mark) {
+      return ['span', { style: `font-family: ${cssFontFamily(mark.attrs.family as string)}` }, 0]
     },
   },
 

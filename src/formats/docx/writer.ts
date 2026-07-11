@@ -25,6 +25,13 @@ function runPropertiesXml(marks: JsonNode['marks'], leading = ''): string {
     if (mark.type === 'em') props.push('<w:i/>')
     if (mark.type === 'underline') props.push('<w:u w:val="single"/>')
     if (mark.type === 'strike') props.push('<w:strike/>')
+    if (mark.type === 'fontFamily') {
+      // Alle vier Attribute konsistent auf denselben Namen (schriftart-waehlen-req.md
+      // §2.8) — divergierendes Rendering zwischen Schriftsystemen wird so vermieden;
+      // der Name bleibt exakt erhalten und wird nur XML-escaped (§2.7).
+      const family = escapeXml(String(mark.attrs?.family ?? ''))
+      if (family) props.push(`<w:rFonts w:ascii="${family}" w:hAnsi="${family}" w:cs="${family}" w:eastAsia="${family}"/>`)
+    }
     if (mark.type === 'fontSize') {
       // w:sz speichert HALBE Punkte; UI-Werte liegen auf dem 0,5er-Raster, importierte
       // Werte sind es von Natur aus — die *2-Rundung ist damit verlustfrei
