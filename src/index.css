@@ -276,3 +276,16 @@ body {
     background: #18181b;
   }
 }
+
+/*
+ * Kopf-/Fußzeilen-Editoren (kopfzeile-/fusszeile-bearbeiten-req.md §1 #3): sitzen im
+ * oberen/unteren Seitenrand, deutlich vom Haupttext abgesetzt (gestrichelte Trennlinie
+ * + Label in der Komponente). Die innere ProseMirror-Fläche bleibt bewusst schlank.
+ */
+.hf-editor-surface .ProseMirror {
+  min-height: 1.4em;
+  padding: 1px 0;
+}
+.hf-editor-surface .ProseMirror p {
+  margin: 0;
+}

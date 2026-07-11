@@ -16,8 +16,8 @@ function odtCard(page: Page) {
 function docxCard(page: Page) {
   return page.locator('div.rounded-lg', { has: page.getByRole('heading', { name: 'Word-Dokument (.docx)' }) })
 }
-const tables = (page: Page) => page.locator('.ProseMirror table')
-const cellAt = (page: Page, i: number) => page.locator('.ProseMirror td').nth(i)
+const tables = (page: Page) => page.locator('.word-editor-surface .ProseMirror table')
+const cellAt = (page: Page, i: number) => page.locator('.word-editor-surface .ProseMirror td').nth(i)
 const deleteButton = (page: Page) => page.getByRole('button', { name: 'Tabelle löschen' })
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -47,7 +47,7 @@ async function exportBytes(page: Page): Promise<Buffer> {
 async function waitForStableLayout(page: Page) {
   await page.waitForFunction(
     () => {
-      const el = document.querySelector('.ProseMirror td, .ProseMirror th')
+      const el = document.querySelector('.word-editor-surface .ProseMirror td, .word-editor-surface .ProseMirror th')
       if (!el) return false
       const r = el.getBoundingClientRect()
       const key = `${r.x.toFixed(1)},${r.y.toFixed(1)},${r.width.toFixed(1)},${r.height.toFixed(1)}`
@@ -72,7 +72,7 @@ async function reimport(
 ) {
   await page.getByRole('button', { name: /formate/i }).click()
   await card(page).locator('input[type="file"]').setInputFiles({ name, mimeType, buffer })
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await expect(page.locator('.word-editor-surface .ProseMirror')).toBeVisible()
 }
 
 async function openEditor(page: Page, card: (p: Page) => ReturnType<typeof odtCard> = odtCard) {
@@ -80,7 +80,7 @@ async function openEditor(page: Page, card: (p: Page) => ReturnType<typeof odtCa
   await page.goto('/')
   await page.getByRole('button', { name: /verstanden/i }).click()
   await card(page).getByRole('button', { name: 'Neu erstellen' }).click()
-  const editor = page.locator('.ProseMirror')
+  const editor = page.locator('.word-editor-surface .ProseMirror')
   await expect(editor).toBeVisible()
   await editor.click()
   return editor
@@ -111,7 +111,7 @@ async function dragSelectCells(page: Page, a: number, b: number) {
 test.describe('Tabelle löschen', () => {
   test('is disabled outside a table and enabled with the cursor in a cell', async ({ page }) => {
     await openEditor(page)
-    await page.locator('.ProseMirror').click()
+    await page.locator('.word-editor-surface .ProseMirror').click()
     await expect(deleteButton(page)).toBeDisabled()
     await insertTableViaDialog(page, 2, 2)
     await cellAt(page, 0).click()
@@ -131,7 +131,7 @@ test.describe('Tabelle löschen', () => {
     await openEditor(page)
     await insertTableViaDialog(page, 2, 2)
     await dragSelectCells(page, 0, 1)
-    await expect(page.locator('.ProseMirror .selectedCell').first()).toBeVisible()
+    await expect(page.locator('.word-editor-surface .ProseMirror .selectedCell').first()).toBeVisible()
     await deleteButton(page).click()
     await expect(tables(page)).toHaveCount(0)
   })
@@ -142,7 +142,7 @@ test.describe('Tabelle löschen', () => {
     // Drag-select all four cells (top-left → bottom-right): a CellSelection covering the entire
     // table. "Tabelle löschen" must still remove the whole table in one step.
     await dragSelectCells(page, 0, 3)
-    await expect(page.locator('.ProseMirror .selectedCell')).toHaveCount(4)
+    await expect(page.locator('.word-editor-surface .ProseMirror .selectedCell')).toHaveCount(4)
     await deleteButton(page).click()
     await expect(tables(page)).toHaveCount(0)
   })
@@ -183,10 +183,10 @@ test.describe('Tabelle löschen', () => {
     await deleteButton(page).click()
     await expect(tables(page)).toHaveCount(0)
 
-    await page.locator('.ProseMirror').click()
+    await page.locator('.word-editor-surface .ProseMirror').click()
     await page.keyboard.press('ControlOrMeta+z')
     await expect(tables(page)).toHaveCount(1)
-    await expect(page.locator('.ProseMirror table')).toContainText('Inhalt') // restored intact
+    await expect(page.locator('.word-editor-surface .ProseMirror table')).toContainText('Inhalt') // restored intact
     await page.keyboard.press('ControlOrMeta+y')
     await expect(tables(page)).toHaveCount(0)
   })
@@ -199,7 +199,7 @@ test.describe('Tabelle löschen', () => {
     await expect(tables(page)).toHaveCount(2)
 
     // cursor into a cell of the INNER table (a "table table" descendant)
-    await page.locator('.ProseMirror table table td').first().click()
+    await page.locator('.word-editor-surface .ProseMirror table table td').first().click()
     await deleteButton(page).click()
     await expect(tables(page)).toHaveCount(1) // outer survives
   })
@@ -214,7 +214,7 @@ test.describe('Tabelle löschen', () => {
     await cellAt(page, 3).click() // re-position the cursor to a different cell
     await deleteButton(page).click()
     await expect(tables(page)).toHaveCount(0)
-    await expect(page.locator('.ProseMirror')).not.toContainText('AAA')
+    await expect(page.locator('.word-editor-surface .ProseMirror')).not.toContainText('AAA')
   })
 })
 
@@ -234,8 +234,8 @@ test.describe('Rundreise: gelöschte Tabelle bleibt über Export/Reimport entfer
 
     await reimport(page, docxCard, 'reimport-del.docx', DOCX_MIME, buffer)
     await expect(tables(page)).toHaveCount(0)
-    await expect(page.locator('.ProseMirror p').filter({ hasText: 'davor' })).toHaveCount(1)
-    await expect(page.locator('.ProseMirror p').filter({ hasText: 'danach' })).toHaveCount(1)
+    await expect(page.locator('.word-editor-surface .ProseMirror p').filter({ hasText: 'davor' })).toHaveCount(1)
+    await expect(page.locator('.word-editor-surface .ProseMirror p').filter({ hasText: 'danach' })).toHaveCount(1)
   })
 
   test('ODT §4.2.2: delete a table, export → no table markup; reimport → only the two paragraphs', async ({ page }) => {
@@ -253,8 +253,8 @@ test.describe('Rundreise: gelöschte Tabelle bleibt über Export/Reimport entfer
 
     await reimport(page, odtCard, 'reimport-del.odt', ODT_MIME, buffer)
     await expect(tables(page)).toHaveCount(0)
-    await expect(page.locator('.ProseMirror p').filter({ hasText: 'davor' })).toHaveCount(1)
-    await expect(page.locator('.ProseMirror p').filter({ hasText: 'danach' })).toHaveCount(1)
+    await expect(page.locator('.word-editor-surface .ProseMirror p').filter({ hasText: 'davor' })).toHaveCount(1)
+    await expect(page.locator('.word-editor-surface .ProseMirror p').filter({ hasText: 'danach' })).toHaveCount(1)
   })
 
   /** Builds davor/Tabelle(Text fett + Bild + Aufzählungsliste)/danach and deletes the table.
@@ -266,20 +266,20 @@ test.describe('Rundreise: gelöschte Tabelle bleibt über Export/Reimport entfer
     await page.keyboard.type('Zellwort geheim')
     for (let i = 0; i < 'geheim'.length; i++) await page.keyboard.press('Shift+ArrowLeft')
     await page.getByRole('button', { name: 'Fett' }).click()
-    await expect(page.locator('.ProseMirror td strong').first()).toHaveText('geheim')
+    await expect(page.locator('.word-editor-surface .ProseMirror td strong').first()).toHaveText('geheim')
     // Zelle 1: Bild (über den echten Upload-Weg, in-memory PNG)
     await cellAt(page, 1).click()
     await page
       .locator('label:has-text("Bild")')
       .locator('input[type=file]')
       .setInputFiles({ name: 'zellbild.png', mimeType: 'image/png', buffer: TINY_PNG })
-    await expect(page.locator('.ProseMirror table img')).toHaveCount(1)
+    await expect(page.locator('.word-editor-surface .ProseMirror table img')).toHaveCount(1)
     // Zelle 2: Aufzählungsliste (Button hat sichtbaren Text "• Liste", Titel "Aufzählung" —
     // der Accessible Name ist der Textinhalt, daher über den Titel ansprechen)
     await cellAt(page, 2).click()
     await page.getByTitle('Aufzählung', { exact: true }).click()
     await page.keyboard.type('Listenpunkt')
-    await expect(page.locator('.ProseMirror table ul li')).toHaveCount(1)
+    await expect(page.locator('.word-editor-surface .ProseMirror table ul li')).toHaveCount(1)
 
     await cellAt(page, 0).click()
     await deleteButton(page).click()
@@ -306,10 +306,10 @@ test.describe('Rundreise: gelöschte Tabelle bleibt über Export/Reimport entfer
 
     await reimport(page, docxCard, 'reimport-content.docx', DOCX_MIME, buffer)
     await expect(tables(page)).toHaveCount(0)
-    await expect(page.locator('.ProseMirror')).not.toContainText('Zellwort')
-    await expect(page.locator('.ProseMirror img')).toHaveCount(0)
-    await expect(page.locator('.ProseMirror')).toContainText('davor')
-    await expect(page.locator('.ProseMirror')).toContainText('danach')
+    await expect(page.locator('.word-editor-surface .ProseMirror')).not.toContainText('Zellwort')
+    await expect(page.locator('.word-editor-surface .ProseMirror img')).toHaveCount(0)
+    await expect(page.locator('.word-editor-surface .ProseMirror')).toContainText('davor')
+    await expect(page.locator('.word-editor-surface .ProseMirror')).toContainText('danach')
   })
 
   test('ODT §4.2.3/§5.2.23: Tabelle mit Text/Fett/Bild/Liste löschen → kein Inhalt, keine verwaisten Pictures', async ({
@@ -330,8 +330,8 @@ test.describe('Rundreise: gelöschte Tabelle bleibt über Export/Reimport entfer
 
     await reimport(page, odtCard, 'reimport-content.odt', ODT_MIME, buffer)
     await expect(tables(page)).toHaveCount(0)
-    await expect(page.locator('.ProseMirror')).not.toContainText('Zellwort')
-    await expect(page.locator('.ProseMirror img')).toHaveCount(0)
+    await expect(page.locator('.word-editor-surface .ProseMirror')).not.toContainText('Zellwort')
+    await expect(page.locator('.word-editor-surface .ProseMirror img')).toHaveCount(0)
   })
 
   /** Builds two tables with distinct cell markers (ERSTE/ZWEITE) and deletes the ERSTE one. */
@@ -356,8 +356,8 @@ test.describe('Rundreise: gelöschte Tabelle bleibt über Export/Reimport entfer
     // Cursor steht in der ERSTE-Tabelle → genau diese wird gelöscht
     await deleteButton(page).click()
     await expect(tables(page)).toHaveCount(1)
-    await expect(page.locator('.ProseMirror table')).toContainText('ZWEITE')
-    await expect(page.locator('.ProseMirror')).not.toContainText('ERSTE')
+    await expect(page.locator('.word-editor-surface .ProseMirror table')).toContainText('ZWEITE')
+    await expect(page.locator('.word-editor-surface .ProseMirror')).not.toContainText('ERSTE')
     return exportBytes(page)
   }
 
@@ -371,8 +371,8 @@ test.describe('Rundreise: gelöschte Tabelle bleibt über Export/Reimport entfer
 
     await reimport(page, docxCard, 'reimport-two.docx', DOCX_MIME, buffer)
     await expect(tables(page)).toHaveCount(1)
-    await expect(page.locator('.ProseMirror table tr')).toHaveCount(2)
-    await expect(page.locator('.ProseMirror table')).toContainText('ZWEITE')
+    await expect(page.locator('.word-editor-surface .ProseMirror table tr')).toHaveCount(2)
+    await expect(page.locator('.word-editor-surface .ProseMirror table')).toContainText('ZWEITE')
   })
 
   test('ODT §4.2.5: von zwei Tabellen nur eine löschen → die andere bleibt vollständig erhalten', async ({ page }) => {
@@ -385,8 +385,8 @@ test.describe('Rundreise: gelöschte Tabelle bleibt über Export/Reimport entfer
 
     await reimport(page, odtCard, 'reimport-two.odt', ODT_MIME, buffer)
     await expect(tables(page)).toHaveCount(1)
-    await expect(page.locator('.ProseMirror table tr')).toHaveCount(2)
-    await expect(page.locator('.ProseMirror table')).toContainText('ZWEITE')
+    await expect(page.locator('.word-editor-surface .ProseMirror table tr')).toHaveCount(2)
+    await expect(page.locator('.word-editor-surface .ProseMirror table')).toContainText('ZWEITE')
   })
 
   // §4.2.8 verlangt "als ODT exportieren → reimportieren → als DOCX exportieren → reimportieren".
@@ -412,8 +412,8 @@ test.describe('Rundreise: gelöschte Tabelle bleibt über Export/Reimport entfer
     expect(xml).toContain('danach')
     await reimport(page, odtCard, 'zyklus-2.odt', ODT_MIME, second)
     await expect(tables(page)).toHaveCount(0)
-    await expect(page.locator('.ProseMirror')).toContainText('davor')
-    await expect(page.locator('.ProseMirror')).toContainText('danach')
+    await expect(page.locator('.word-editor-surface .ProseMirror')).toContainText('davor')
+    await expect(page.locator('.word-editor-surface .ProseMirror')).toContainText('danach')
   })
 })
 
@@ -442,7 +442,7 @@ test.describe('Rundreise: reale Fremddatei-Fixtures', () => {
         mimeType: mime,
         buffer: readFileSync(join(dir, fx.name)),
       })
-      await expect(page.locator('.ProseMirror')).toBeVisible()
+      await expect(page.locator('.word-editor-surface .ProseMirror')).toBeVisible()
       const initialTables = await tables(page).count()
       expect(initialTables, 'Fixture muss mindestens eine Tabelle enthalten').toBeGreaterThan(0)
 
@@ -462,7 +462,7 @@ test.describe('Rundreise: reale Fremddatei-Fixtures', () => {
         // Klick nahe der Zell-Ecke (nicht Mitte): landet auch bei verschachtelten Tabellen
         // oder Bildern im Zellinhalt zuverlässig IN der Zelle; 5px bleibt selbst bei durch
         // Fit-Zoom verkleinerten Zellen innerhalb der Box.
-        await page.locator('.ProseMirror td, .ProseMirror th').first().click({ position: { x: 5, y: 5 } })
+        await page.locator('.word-editor-surface .ProseMirror td, .ProseMirror th').first().click({ position: { x: 5, y: 5 } })
         await expect(deleteButton(page)).toBeEnabled()
         await deleteButton(page).click()
       }
@@ -485,7 +485,7 @@ test.describe('Rundreise: reale Fremddatei-Fixtures', () => {
         .sort((a, b) => b.length - a.length)
         .slice(0, 5)
       for (const word of words) {
-        await expect(page.locator('.ProseMirror')).toContainText(word)
+        await expect(page.locator('.word-editor-surface .ProseMirror')).toContainText(word)
       }
     })
   }
@@ -498,7 +498,7 @@ test('20×20-Tabelle löschen: UI bleibt reaktionsfähig, Undo stellt die volle 
 }) => {
   await openEditor(page)
   await insertTableViaDialog(page, 20, 20)
-  await expect(page.locator('.ProseMirror table tr')).toHaveCount(20)
+  await expect(page.locator('.word-editor-surface .ProseMirror table tr')).toHaveCount(20)
   await page.waitForTimeout(600) // eigene History-Gruppe fürs Tippen
   await cellAt(page, 0).click()
   await page.keyboard.type('X1')
@@ -510,15 +510,15 @@ test('20×20-Tabelle löschen: UI bleibt reaktionsfähig, Undo stellt die volle 
   // Reaktionsfähigkeit: direkt weitertippen funktioniert sofort
   await page.waitForTimeout(600) // eigene History-Gruppe für die Tipp-Probe
   await page.keyboard.type('reaktiv')
-  await expect(page.locator('.ProseMirror')).toContainText('reaktiv')
+  await expect(page.locator('.word-editor-surface .ProseMirror')).toContainText('reaktiv')
 
   // Undo-Treue: 1× Undo entfernt die Tipp-Probe, 2× stellt die 20×20-Tabelle samt Inhalt wieder her
   await page.keyboard.press('ControlOrMeta+z')
-  await expect(page.locator('.ProseMirror')).not.toContainText('reaktiv')
+  await expect(page.locator('.word-editor-surface .ProseMirror')).not.toContainText('reaktiv')
   await page.keyboard.press('ControlOrMeta+z')
   await expect(tables(page)).toHaveCount(1)
-  await expect(page.locator('.ProseMirror table tr')).toHaveCount(20)
-  await expect(page.locator('.ProseMirror table tr').first().locator('td, th')).toHaveCount(20)
+  await expect(page.locator('.word-editor-surface .ProseMirror table tr')).toHaveCount(20)
+  await expect(page.locator('.word-editor-surface .ProseMirror table tr').first().locator('td, th')).toHaveCount(20)
   await expect(cellAt(page, 0)).toHaveText('X1')
   await page.keyboard.press('ControlOrMeta+y')
   await expect(tables(page)).toHaveCount(0)

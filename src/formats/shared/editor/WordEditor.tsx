@@ -24,6 +24,7 @@ import {
 import { LinkDialog } from './LinkDialog'
 import { SearchBar } from './SearchBar'
 import { createSearchPlugin } from './search'
+import { HeaderFooterEditor, emptyHeaderFooter } from './HeaderFooterEditor'
 import { clipboardTextSerializer } from './clipboard'
 import { createPastePlugin } from './paste'
 import { createPaginationPlugin } from './pagination'
@@ -161,6 +162,36 @@ export function WordEditor({ document: doc, onChange }: FormatEditorProps<WordDo
   // Suche (suchen-req.md §2): searchNonce > 0 = Leiste offen; jede Erhöhung fokussiert/
   // selektiert das Suchfeld erneut (Grenzfall „erneutes Strg+F bei offener Leiste").
   const [searchNonce, setSearchNonce] = useState(0)
+
+  // Kopf-/Fußzeile (kopfzeile-/fusszeile-bearbeiten-req.md): eigene EditorViews; die
+  // Toolbar bindet an die jeweils FOKUSSIERTE Instanz (§1 #6). docContentRef hält den
+  // je aktuellen Dokumentstand für die onChange-Spreads aller drei Views.
+  const docContentRef = useRef(doc.content)
+  docContentRef.current = doc.content
+  const [focusedHF, setFocusedHF] = useState<EditorView | null>(null)
+  const patchDocument = (patch: Partial<WordDocumentContent>) => {
+    onChangeRef.current({ ...docContentRef.current, ...patch })
+  }
+  const toggleHeaderFooter = (kind: 'header' | 'footer') => {
+    const existing = docContentRef.current[kind] as { content?: Array<{ content?: unknown[] }> } | null
+    const label = kind === 'header' ? 'Kopfzeile' : 'Fußzeile'
+    if (!existing) {
+      patchDocument({ [kind]: emptyHeaderFooter() } as Partial<WordDocumentContent>)
+      return
+    }
+    // Ausblenden = Entfernen (das Modell kennt nur vorhanden/null); bei nicht-leerem
+    // Inhalt schützt eine Bestätigung vor Datenverlust (req §1 #5, window.confirm wie
+    // in DocumentWorkspace). Aktivieren/Entfernen laufen auf App-Ebene und sind BEWUSST
+    // kein Editor-Undo-Schritt (req §10 Frage 3 — der Dialog ist der Schutzmechanismus).
+    const isEmpty =
+      !existing.content || (existing.content.length === 1 && !(existing.content[0].content?.length ?? 0))
+    if (!isEmpty && !window.confirm(`${label} samt Inhalt entfernen?`)) return
+    setFocusedHF(null)
+    patchDocument({ [kind]: null } as Partial<WordDocumentContent>)
+  }
+  /** Die Instanz, auf die Toolbar und Dialoge wirken: fokussierte Kopf-/Fußzeile,
+   * sonst der Haupttext (req §1 #6 „kontextsensitiv an die fokussierte Instanz"). */
+  const targetView = focusedHF ?? viewRef.current
   // Strg/Cmd+F auf WORKSPACE-Ebene — muss auch greifen, wenn der Editor noch keinen
   // Fokus hatte (direkt nach Import); echte Formularfelder AUSSERHALB der Suche behalten
   // ihr natives Verhalten (§2 „Fokus-Klarstellung").
@@ -407,9 +438,18 @@ export function WordEditor({ document: doc, onChange }: FormatEditorProps<WordDo
         const newState = view.state.apply(tr)
         view.updateState(newState)
         if (tr.docChanged) {
-          onChangeRef.current({ ...doc.content, body: newState.doc.toJSON() })
+          // docContentRef statt der eingefrorenen Closure-Prop: seit Kopf-/Fußzeile
+          // parallel editierbar sind, würde ein Spread über den Erst-Render-Stand
+          // deren jüngere Änderungen zurückrollen.
+          onChangeRef.current({ ...docContentRef.current, body: newState.doc.toJSON() })
         }
         forceRender((n) => n + 1)
+      },
+      handleDOMEvents: {
+        focus: () => {
+          setFocusedHF(null) // Toolbar bindet wieder an den Haupttext
+          return false
+        },
       },
     })
     viewRef.current = view
@@ -479,6 +519,8 @@ export function WordEditor({ document: doc, onChange }: FormatEditorProps<WordDo
   const focusEditorFromSheet = (event: ReactMouseEvent) => {
     const view = viewRef.current
     if (!view || view.dom.contains(event.target as Node)) return
+    // Klicks in die Kopf-/Fußzeilen-Bereiche gehören deren eigenen EditorViews.
+    if ((event.target as HTMLElement).closest?.('[data-testid="header-editor"], [data-testid="footer-editor"]')) return
     event.preventDefault() // keep the browser from focusing the div itself
     const doc = view.state.doc
     const editorRect = view.dom.getBoundingClientRect()
@@ -510,11 +552,17 @@ export function WordEditor({ document: doc, onChange }: FormatEditorProps<WordDo
   }
 
   const activeView = viewRef.current
+  const editView = targetView ?? activeView
   return (
     <div className="flex flex-col h-full">
-      {activeView && (
+      {activeView && editView && (
         <Toolbar
-          view={activeView}
+          view={editView}
+          inHeaderFooter={!!focusedHF}
+          headerActive={!!doc.content.header}
+          footerActive={!!doc.content.footer}
+          onToggleHeader={() => toggleHeaderFooter('header')}
+          onToggleFooter={() => toggleHeaderFooter('footer')}
           cutError={cutError}
           setCutError={setCutError}
           onOpenTableDialog={() => setTableDialogOpen(true)}
@@ -526,40 +574,40 @@ export function WordEditor({ document: doc, onChange }: FormatEditorProps<WordDo
       {activeView && searchNonce > 0 && (
         <SearchBar view={activeView} focusNonce={searchNonce} onClose={() => setSearchNonce(0)} />
       )}
-      {activeView && tableDialogOpen && (
+      {activeView && editView && tableDialogOpen && (
         <TableSizeDialog
           onInsert={(rows, cols) => {
             setTableDialogOpen(false)
-            insertTable(rows, cols)(activeView.state, activeView.dispatch, activeView)
-            activeView.focus() // return focus to the editor after inserting (§2.1)
+            insertTable(rows, cols)(editView.state, editView.dispatch, editView)
+            editView.focus() // return focus to the editor after inserting (§2.1)
           }}
           onClose={() => {
             setTableDialogOpen(false)
-            activeView.focus() // return focus to the editor on cancel/escape/outside (§2.1)
+            editView.focus() // return focus to the editor on cancel/escape/outside (§2.1)
           }}
         />
       )}
-      {activeView && linkDialogOpen && (
+      {activeView && editView && linkDialogOpen && (
         <LinkDialog
-          initialHref={linkAtSelection(activeView.state)?.href ?? null}
-          needsText={activeView.state.selection.empty && !linkAtSelection(activeView.state)}
+          initialHref={linkAtSelection(editView.state)?.href ?? null}
+          needsText={editView.state.selection.empty && !linkAtSelection(editView.state)}
           onApply={(href, text) => {
             setLinkDialogOpen(false)
-            applyLink(href, text)(activeView.state, activeView.dispatch)
-            activeView.focus()
+            applyLink(href, text)(editView.state, editView.dispatch)
+            editView.focus()
           }}
           onRemove={
-            linkAtSelection(activeView.state) || !activeView.state.selection.empty
+            linkAtSelection(editView.state) || !editView.state.selection.empty
               ? () => {
                   setLinkDialogOpen(false)
-                  removeLink()(activeView.state, activeView.dispatch)
-                  activeView.focus()
+                  removeLink()(editView.state, editView.dispatch)
+                  editView.focus()
                 }
               : null
           }
           onClose={() => {
             setLinkDialogOpen(false)
-            activeView.focus()
+            editView.focus()
           }}
         />
       )}
@@ -596,6 +644,36 @@ export function WordEditor({ document: doc, onChange }: FormatEditorProps<WordDo
             }}
             className="shadow-lg"
           >
+            {/* Kopf-/Fußzeile im oberen/unteren Seitenrand der ersten Seite (req §1 #3;
+                Layout-Entscheidung §4 Option (a), Stufe 1 — Folgeseiten-Kopien folgen
+                als eigene Scheibe, in req §10 vermerkt). Absolut positioniert: berührt
+                weder Inhaltsfluss noch Paginierung. */}
+            {doc.content.header && (
+              <div
+                className="absolute left-0 right-0"
+                style={{ top: Math.round(PAGE_MARGIN_PX * 0.3), padding: `0 ${PAGE_MARGIN_PX}px` }}
+              >
+                <HeaderFooterEditor
+                  kind="header"
+                  content={doc.content.header}
+                  onChange={(json) => patchDocument({ header: json as WordDocumentContent['header'] })}
+                  onFocusChange={(v) => setFocusedHF((cur) => v ?? (cur && cur.dom.isConnected ? cur : null))}
+                />
+              </div>
+            )}
+            {doc.content.footer && (
+              <div
+                className="absolute left-0 right-0"
+                style={{ bottom: Math.round(PAGE_MARGIN_PX * 0.3), padding: `0 ${PAGE_MARGIN_PX}px` }}
+              >
+                <HeaderFooterEditor
+                  kind="footer"
+                  content={doc.content.footer}
+                  onChange={(json) => patchDocument({ footer: json as WordDocumentContent['footer'] })}
+                  onFocusChange={(v) => setFocusedHF((cur) => v ?? (cur && cur.dom.isConnected ? cur : null))}
+                />
+              </div>
+            )}
             <div ref={containerRef} className="word-editor-surface outline-none" />
           </div>
         </div>

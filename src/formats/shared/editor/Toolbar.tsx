@@ -51,6 +51,13 @@ interface ToolbarProps {
   onOpenLinkDialog: () => void
   /** Öffnet/fokussiert die Suchleiste (suchen-req.md §2 #1) — derselbe Weg wie Strg+F. */
   onOpenSearch: () => void
+  /** true, wenn die Toolbar gerade an eine Kopf-/Fußzeilen-Instanz gebunden ist —
+   * Body-Konzepte (Seitenumbruch) sind dann deaktiviert. */
+  inHeaderFooter: boolean
+  headerActive: boolean
+  footerActive: boolean
+  onToggleHeader: () => void
+  onToggleFooter: () => void
   /** Transient, auto-dismissing status banner (shared with the paste pipeline) —
    * used by the page-break fallback inside tables/lists (seitenumbruch-req.md §3.10). */
   onNotice: (message: string) => void
@@ -332,6 +339,25 @@ const IconTableDelete = (
     <path d="M4.5 5.5l15 13M19.5 5.5l-15 13" />
   </TableIcon>
 )
+// Kopf-/Fußzeilen-Icons (kopfzeile-/fusszeile-bearbeiten-req.md §1 #1): Seitenblatt mit
+// markiertem oberen bzw. unteren Randband — eingebettete SVGs, kein Unicode.
+const IconHeader = (
+  <TableIcon>
+    <rect x="5" y="3" width="14" height="18" rx="1.5" />
+    <line x1="7.5" y1="6.5" x2="16.5" y2="6.5" strokeWidth="2.6" />
+    <line x1="7.5" y1="12" x2="16.5" y2="12" opacity="0.35" />
+    <line x1="7.5" y1="15.5" x2="16.5" y2="15.5" opacity="0.35" />
+  </TableIcon>
+)
+const IconFooter = (
+  <TableIcon>
+    <rect x="5" y="3" width="14" height="18" rx="1.5" />
+    <line x1="7.5" y1="17.5" x2="16.5" y2="17.5" strokeWidth="2.6" />
+    <line x1="7.5" y1="8.5" x2="16.5" y2="8.5" opacity="0.35" />
+    <line x1="7.5" y1="12" x2="16.5" y2="12" opacity="0.35" />
+  </TableIcon>
+)
+
 // Lupen-Icon für „Suchen" (suchen-req.md §2 #1 — eingebettetes SVG, kein Unicode).
 const IconSearch = (
   <TableIcon>
@@ -429,6 +455,11 @@ export function Toolbar({
   onOpenTableDialog,
   onOpenLinkDialog,
   onOpenSearch,
+  inHeaderFooter,
+  headerActive,
+  footerActive,
+  onToggleHeader,
+  onToggleFooter,
   onNotice,
 }: ToolbarProps) {
   function currentHeadingLevel(): string {
@@ -673,6 +704,40 @@ export function Toolbar({
         <input type="file" accept="image/*" className="hidden" onChange={handleImagePick} />
       </label>
 
+      {/* Kopf-/Fußzeile (kopfzeile-/fusszeile-bearbeiten-req.md §1 #1, gemeinsame
+          Bedienleiste laut §10 Frage 4): aria-pressed = Bereich vorhanden; Klick
+          aktiviert+fokussiert bzw. entfernt (mit Bestätigung bei Inhalt). */}
+      <button
+        type="button"
+        title={headerActive ? 'Kopfzeile entfernen' : 'Kopfzeile bearbeiten'}
+        aria-label="Kopfzeile"
+        aria-pressed={headerActive}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={onToggleHeader}
+        className={`px-2 py-1 rounded text-sm border inline-flex items-center ${
+          headerActive
+            ? 'bg-neutral-900 text-white border-neutral-900 dark:bg-neutral-100 dark:text-neutral-900'
+            : 'border-transparent hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300'
+        }`}
+      >
+        {IconHeader}
+      </button>
+      <button
+        type="button"
+        title={footerActive ? 'Fußzeile entfernen' : 'Fußzeile bearbeiten'}
+        aria-label="Fußzeile"
+        aria-pressed={footerActive}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={onToggleFooter}
+        className={`px-2 py-1 rounded text-sm border inline-flex items-center ${
+          footerActive
+            ? 'bg-neutral-900 text-white border-neutral-900 dark:bg-neutral-100 dark:text-neutral-900'
+            : 'border-transparent hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300'
+        }`}
+      >
+        {IconFooter}
+      </button>
+
       {/* Suchen (suchen-req.md §2 #1): öffnet dieselbe Suchleiste wie Strg+F. */}
       <button
         type="button"
@@ -712,9 +777,10 @@ export function Toolbar({
         type="button"
         title="Seitenumbruch einfügen"
         aria-label="Seitenumbruch einfügen"
+        disabled={inHeaderFooter}
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => run(view, insertPageBreak(onNotice))}
-        className="px-2 py-1 rounded text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300 inline-flex items-center gap-1"
+        className="px-2 py-1 rounded text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300 inline-flex items-center gap-1 disabled:opacity-40 disabled:hover:bg-transparent"
       >
         {IconPageBreak}
         <span>Umbruch</span>
